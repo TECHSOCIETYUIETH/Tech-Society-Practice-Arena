@@ -22,7 +22,8 @@ const userSchema = new mongoose.Schema({
     type:    String,
     enum:    ['admin','mentor','student'],
     default: 'student'
-  }
+  },
+  isActive: { type: Boolean, default: true }
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', userSchema);

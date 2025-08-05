@@ -1,19 +1,30 @@
 // routes/assignments.js
-const router    = require('express').Router();
-const auth      = require('../middleware/auth');
-const authorize = require('../middleware/authorize');
-const ctrl      = require('../controllers/assignment');
+const express   = require('express')
+const router    = express.Router()
+const auth      = require('../middleware/auth')
+const authorize = require('../middleware/authorize')
+const {
+  createAssignment,
+  getAssignments,
+  getMyAssignments,
+  getAssignment,
+  updateAssignment,
+  deleteAssignment,
+  submitAssignment,
+  getSubmissions,
+  getSubmission,
+  gradeSubmission
+} = require('../controllers/assignment')
 
-// all routes require login
-router.use(auth);
-
-// create/update/delete → admin & mentor only
-router.post(   '/',        authorize('admin','mentor'), ctrl.createAssignment);
-router.put(    '/:id',     authorize('admin','mentor'), ctrl.updateAssignment);
-router.delete( '/:id',     authorize('admin','mentor'), ctrl.deleteAssignment);
-
-// read → any authenticated user
-router.get(    '/',        ctrl.getAssignments);
-router.get(    '/:id',     ctrl.getAssignment);
-
-module.exports = router;
+router.use(auth)
+router.get(   '/me',                         authorize('student'),        getMyAssignments)
+router.post(  '/',                           authorize('mentor','admin'), createAssignment)
+router.get(   '/',                           authorize('mentor','admin'), getAssignments)
+router.get(   '/:id',                        getAssignment)
+router.put(   '/:id',                        authorize('mentor','admin'), updateAssignment)
+router.delete('/:id',                        authorize('mentor','admin'), deleteAssignment)
+router.post(  '/:id/submit',                 authorize('student'),        submitAssignment)
+router.get(   '/:id/submissions',            authorize('mentor','admin'), getSubmissions)
+router.get(   '/:id/submissions/:studentId', authorize('mentor','admin'), getSubmission)
+router.put(   '/:id/submissions/:studentId', authorize('mentor','admin'), gradeSubmission)
+module.exports = router

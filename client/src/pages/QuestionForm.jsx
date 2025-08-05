@@ -9,50 +9,87 @@ import 'react-quill/dist/quill.snow.css'
 const initial = {
   type: 'mcq',
   content: '',
-  imageUrl: '',
-  imageCaption: '',
   options: [{ id: 'A', text: '' }, { id: 'B', text: '' }],
   correctAnswers: [],
   testCases: [],
   explanation: '',
-  tags: { topics: [], difficulty: 'beginner' }
+  tags: { topics: [], difficulty: 'beginner' },
+  images: []
 }
 
 export default function QuestionForm() {
   const { id } = useParams()
   const editMode = Boolean(id)
   const navigate = useNavigate()
-  const [q, setQ] = useState(initial)
 
+  const [q, setQ] = useState(initial)
+  const [uploading, setUploading] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+
+  // 1. Quill modules & formats for code blocks + links + lists
+  const modules = {
+    toolbar: [
+      ['bold', 'italic', 'underline', 'code-block', 'link'],
+      [{ list: 'ordered' }, { list: 'bullet' }],
+      ['clean']
+    ]
+  }
+  const formats = [
+    'bold', 'italic', 'underline',
+    'code-block', 'link',
+    'list', 'bullet'
+  ]
+
+  // Load existing question if editing
   useEffect(() => {
-    if (editMode) {
-      API.get(`/questions/${id}`)
-        .then(r => {
-          // convert HTML explanation/content to initial for Quill
-          setQ(r.data.data)
-        })
-        .catch(() => toast.error('Load failed'))
-    }
+    if (!editMode) return
+    API.get(`/questions/${id}`)
+      .then(r => setQ(r.data.data))
+      .catch(() => toast.error('Load failed'))
   }, [editMode, id])
 
-  const handleSubmit = async e => {
-    e.preventDefault()
+  // Handle image file upload
+  const handleFile = async e => {
+    const file = e.target.files[0]
+    if (!file) return
+    setUploading(true)
+    const form = new FormData()
+    form.append('file', file)
     try {
-      if (editMode) {
-        await API.put(`/questions/${id}`, q)
-        toast.success('Updated')
-      } else {
-        await API.post('/questions', q)
-        toast.success('Created')
-      }
-      navigate('/questions')
+      const { data } = await API.post('/upload/image', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      setQ(prev => ({
+        ...prev,
+        images: [...prev.images, { url: data.url, caption: '' }]
+      }))
+      toast.success('Image uploaded')
     } catch {
-      toast.error('Save failed')
+      toast.error('Upload failed')
+    } finally {
+      setUploading(false)
     }
   }
 
-  // Quill toolbar
-  const toolbar = [['bold','italic','underline'], [{ 'list': 'ordered' }, { 'list': 'bullet' }]]
+  // Handle submit
+  const handleSubmit = async e => {
+    e.preventDefault()
+    setSubmitting(true)
+    try {
+      const payload = { ...q }
+      if (editMode) {
+        await API.put(`/questions/${id}`, payload)
+      } else {
+        await API.post('/questions', payload)
+      }
+      toast.success(editMode ? 'Updated' : 'Created')
+      navigate('/questions')
+    } catch {
+      toast.error('Save failed')
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   return (
     <div className="p-6 max-w-2xl mx-auto bg-white rounded shadow space-y-6">
@@ -60,7 +97,8 @@ export default function QuestionForm() {
         {editMode ? 'Edit Question' : 'New Question'}
       </h2>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-6">
+
         {/* Type */}
         <label className="block">
           <span>Type</span>
@@ -76,62 +114,90 @@ export default function QuestionForm() {
           </select>
         </label>
 
-        {/* Content */}
+        {/* Content with code-block & link support */}
         <div>
           <span>Content</span>
           <ReactQuill
             theme="snow"
             value={q.content}
-            modules={{ toolbar }}
+            modules={modules}
+            formats={formats}
             onChange={value => setQ({ ...q, content: value })}
           />
         </div>
 
-        {/* Image */}
-        {q.type === 'image' && (
-          <>
+        {/* Multiple Images */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
             <label className="block">
-              <span>Image URL</span>
+              <span>Upload Image</span>
               <input
-                value={q.imageUrl}
-                onChange={e => setQ({ ...q, imageUrl: e.target.value })}
-                className="mt-1 w-full border px-2 py-1 rounded"
+                type="file"
+                accept="image/*"
+                onChange={handleFile}
+                disabled={uploading}
+                className="mt-1"
               />
             </label>
-            <label className="block">
-              <span>Caption</span>
-              <input
-                value={q.imageCaption}
-                onChange={e => setQ({ ...q, imageCaption: e.target.value })}
-                className="mt-1 w-full border px-2 py-1 rounded"
+            {uploading && <span className="text-gray-500">Uploading…</span>}
+          </div>
+          {q.images.map((img, idx) => (
+            <div key={idx} className="flex items-center gap-2">
+              <img
+                src={img.url}
+                alt=""
+                className="w-24 h-16 object-cover rounded"
               />
-            </label>
-          </>
-        )}
+              <input
+                placeholder="Caption"
+                value={img.caption}
+                onChange={e => {
+                  const copy = [...q.images]
+                  copy[idx].caption = e.target.value
+                  setQ({ ...q, images: copy })
+                }}
+                className="flex-1 border px-2 py-1 rounded"
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  setQ({
+                    ...q,
+                    images: q.images.filter((_, i) => i !== idx)
+                  })
+                }
+                className="text-red-600 hover:underline"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
 
-        {/* Options */}
-        {(q.type === 'mcq' || q.type === 'msq') && (
+        {/* Options for MCQ/MSQ */}
+        {(q.type === 'mcq' || q.type === 'msq') && (
           <div className="space-y-2">
             <span>Options & Correct</span>
-            {q.options.map((opt,i) => (
+            {q.options.map((opt, i) => (
               <div key={i} className="flex items-center gap-2">
                 <span className="w-4">{opt.id}</span>
                 <input
                   className="flex-1 border px-2 py-1 rounded"
                   value={opt.text}
                   onChange={e => {
-                    const o = [...q.options]; o[i].text = e.target.value
+                    const o = [...q.options]
+                    o[i].text = e.target.value
                     setQ({ ...q, options: o })
                   }}
                 />
                 <input
-                  type={q.type==='mcq'?'radio':'checkbox'}
+                  type={q.type === 'mcq' ? 'radio' : 'checkbox'}
                   name="correct"
                   checked={q.correctAnswers.includes(opt.id)}
                   onChange={() => {
                     let ca = [...q.correctAnswers]
-                    if (q.type==='mcq') ca = [opt.id]
-                    else if (ca.includes(opt.id)) ca = ca.filter(x=>x!==opt.id)
+                    if (q.type === 'mcq') ca = [opt.id]
+                    else if (ca.includes(opt.id)) ca = ca.filter(x => x !== opt.id)
                     else ca.push(opt.id)
                     setQ({ ...q, correctAnswers: ca })
                   }}
@@ -142,60 +208,66 @@ export default function QuestionForm() {
         )}
 
         {/* Test Cases */}
-        {q.type==='descriptive' || q.testCases ? (
-          <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <span>Test Cases</span>
+        <div className="space-y-2">
+          <div className="flex justify-between items-center">
+            <span>Test Cases</span>
+            <button
+              type="button"
+              onClick={() =>
+                setQ({
+                  ...q,
+                  testCases: [...q.testCases, { input: '', expected: '' }]
+                })
+              }
+              className="text-blue-600 hover:underline text-sm"
+            >
+              + Add Test Case
+            </button>
+          </div>
+          {q.testCases.map((tc, i) => (
+            <div key={i} className="flex gap-2">
+              <input
+                placeholder="Input"
+                value={tc.input}
+                onChange={e => {
+                  const t = [...q.testCases]
+                  t[i].input = e.target.value
+                  setQ({ ...q, testCases: t })
+                }}
+                className="flex-1 border px-2 py-1 rounded"
+              />
+              <input
+                placeholder="Expected"
+                value={tc.expected}
+                onChange={e => {
+                  const t = [...q.testCases]
+                  t[i].expected = e.target.value
+                  setQ({ ...q, testCases: t })
+                }}
+                className="flex-1 border px-2 py-1 rounded"
+              />
               <button
                 type="button"
-                onClick={() => setQ({ ...q, testCases: [...q.testCases,{ input:'',expected:'' }] })}
-                className="text-blue-600 hover:underline text-sm"
+                onClick={() => {
+                  const t = q.testCases.filter((_, j) => j !== i)
+                  setQ({ ...q, testCases: t })
+                }}
+                className="text-red-600 hover:underline"
               >
-                + Add Test Case
+                Remove
               </button>
             </div>
-            {q.testCases.map((tc,i) => (
-              <div key={i} className="flex gap-2">
-                <input
-                  placeholder="Input"
-                  value={tc.input}
-                  onChange={e => {
-                    const t = [...q.testCases]; t[i].input = e.target.value
-                    setQ({ ...q, testCases: t })
-                  }}
-                  className="flex-1 border px-2 py-1 rounded"
-                />
-                <input
-                  placeholder="Expected"
-                  value={tc.expected}
-                  onChange={e => {
-                    const t = [...q.testCases]; t[i].expected = e.target.value
-                    setQ({ ...q, testCases: t })
-                  }}
-                  className="flex-1 border px-2 py-1 rounded"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const t = q.testCases.filter((_,j)=>j!==i)
-                    setQ({ ...q, testCases: t })
-                  }}
-                  className="text-red-600 hover:underline"
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : null}
+          ))}
+        </div>
 
-        {/* Explanation */}
+        {/* Explanation with code-block & link support */}
         <div>
           <span>Explanation</span>
           <ReactQuill
             theme="snow"
             value={q.explanation}
-            modules={{ toolbar }}
+            modules={modules}
+            formats={formats}
             onChange={value => setQ({ ...q, explanation: value })}
           />
         </div>
@@ -205,20 +277,25 @@ export default function QuestionForm() {
           <input
             placeholder="Topics (comma separated)"
             value={q.tags.topics.join(',')}
-            onChange={e => setQ({
-              ...q,
-              tags:{ ...q.tags,
-                topics: e.target.value.split(',').map(s=>s.trim())
-              }
-            })}
+            onChange={e =>
+              setQ({
+                ...q,
+                tags: {
+                  ...q.tags,
+                  topics: e.target.value.split(',').map(s => s.trim())
+                }
+              })
+            }
             className="flex-1 border px-2 py-1 rounded"
           />
           <select
             value={q.tags.difficulty}
-            onChange={e => setQ({
-              ...q,
-              tags:{ ...q.tags, difficulty: e.target.value }
-            })}
+            onChange={e =>
+              setQ({
+                ...q,
+                tags: { ...q.tags, difficulty: e.target.value }
+              })
+            }
             className="w-40 border px-2 py-1 rounded"
           >
             <option value="beginner">Beginner</option>
@@ -227,11 +304,13 @@ export default function QuestionForm() {
           </select>
         </div>
 
+        {/* Submit */}
         <button
           type="submit"
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded"
+          disabled={submitting}
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded disabled:opacity-50"
         >
-          {editMode?'Update':'Create'}
+          {submitting ? 'Saving…' : editMode ? 'Update' : 'Create'}
         </button>
       </form>
     </div>

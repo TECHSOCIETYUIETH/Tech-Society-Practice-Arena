@@ -1,18 +1,30 @@
-const router    = require('express').Router({ mergeParams: true });
-const auth      = require('../middleware/auth');
-const ctrl      = require('../controllers/submission');
+const express = require('express')
+const router  = express.Router({ mergeParams: true })
+const auth    = require('../middleware/auth')
+const authorizeRoles = require('../middleware/authorize')
 
-// all routes require login
-router.use(auth);
+// controllers
+const {
+  submitAssignment,
+  // mentor/admin:
+  getSubmissions,
+  getSubmission: getOneSubmission,
+  gradeSubmission,
+  // new for student:
+  getMySubmission
+} = require('../controllers/assignment')
 
-// submit (student)
-router.post(   '/:id/submit',                  ctrl.submitAssignment);
+router.use(auth)
 
-// list & get (admin/mentor see all; student sees own)
-router.get(    '/:id/submissions',             ctrl.getSubmissions);
-router.get(    '/:id/submissions/:sid',        ctrl.getSubmission);
+// student can fetch *their own* submission
+router.get('/:id/submission', getMySubmission)
 
-// PDF download
-router.get(    '/:id/submissions/:sid/pdf',    ctrl.downloadSubmission);
+// student submit or save draft
+router.post('/:id/submit', submitAssignment)
 
-module.exports = router;
+// mentor/admin endpoints
+router.get('/:id/submissions', authorizeRoles('mentor','admin'), getSubmissions)
+router.get('/:id/submissions/:studentId', authorizeRoles('mentor','admin'), getOneSubmission)
+router.put('/:id/submissions/:studentId/grade', authorizeRoles('mentor','admin'), gradeSubmission)
+
+module.exports = router

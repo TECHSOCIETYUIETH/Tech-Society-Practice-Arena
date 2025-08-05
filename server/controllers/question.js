@@ -14,6 +14,7 @@ exports.createQuestion = async (req, res, next) => {
       inserted = await Question.insertMany(payloads);
     } else {
       // Single
+      console.log("recieved questions is: ",req.body);
       const payload = {
         ...req.body,
         tags: { ...req.body.tags, creator: req.user.id }

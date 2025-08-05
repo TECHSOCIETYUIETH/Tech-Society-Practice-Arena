@@ -1,5 +1,6 @@
 // controllers/assignment.js
 const Assignment = require('../models/Assignment');
+const Submission = require('../models/Submission')
 
 // @desc Create a new assignment
 exports.createAssignment = async (req, res, next) => {
@@ -14,6 +15,8 @@ exports.createAssignment = async (req, res, next) => {
     next(err);
   }
 };
+
+
 
 // @desc Get all assignments (filter for students)
 exports.getAssignments = async (req, res, next) => {
@@ -36,27 +39,101 @@ exports.getAssignments = async (req, res, next) => {
   }
 };
 
+
+
+
+// controllers/assignment.js
+// @desc Student “My Assignments”
+exports.getMyAssignments = async (req, res, next) => {
+  try {
+    const me = req.user.id
+
+    // 1) fetch assignments visible to me
+    const assigns = await Assignment.find({
+      $or: [
+        { visibleToAll: true },
+        { visibleTo: me }
+      ]
+    })
+    .populate('questions','type')
+    .populate('createdBy','name')
+
+    // 2) batch‐fetch my submissions
+    const subs = await Submission.find({
+      assignment: { $in: assigns.map(a=>a._id) },
+      student: me
+    }).lean()
+    const subMap = {}
+    subs.forEach(s => {
+      subMap[s.assignment.toString()] = s
+    })
+
+    const now = new Date()
+    const data = assigns.map(a => {
+      const sub = subMap[a._id.toString()] || null
+      const hasManual = a.questions.some(q => q.type === 'descriptive')
+      let studentStatus
+
+      if (!sub) {
+        // no draft or final → either upcoming, closed or fresh pending
+        if (a.startDate && now < a.startDate)             
+              studentStatus = 'upcoming'
+        else if (a.status!=='open' || (a.dueDate && now > a.dueDate)) 
+            studentStatus = 'closed'
+        else                                                
+             studentStatus = 'pending'
+      } else {
+        // sub exists
+        if (!sub.isFinal) {
+          // draft only
+          studentStatus = 'pending'
+        } else if (hasManual && sub.grade == null) {
+          // final + needs manual grading
+          studentStatus = 'pendingReview'
+        } else {
+          // final + auto‐graded or manually graded
+          studentStatus = 'completed'
+        }
+      }
+
+      return {
+        _id: a._id,
+        title: a.title,
+        startDate: a.startDate,
+        dueDate: a.dueDate,
+        visibleToAll: a.visibleToAll,
+        createdBy: a.createdBy,
+        questionsCount: a.questions.length,
+        studentStatus,
+        mySubmission: sub
+      }
+    })
+
+    res.json({ success:true, data })
+  } catch(err) {
+    next(err)
+  }
+}
+
+
+
 // @desc Get single assignment (with same visibility check)
 exports.getAssignment = async (req, res, next) => {
   try {
-    const a = await Assignment.findById(req.params.id)
-      .populate('questions','content type')
-      .populate('createdBy','name email');
-    if (!a) return res.status(404).json({ success:false, message:'Not found' });
 
-    if (
-      req.user.role === 'student' &&
-      !a.visibleToAll &&
-      !a.visibleTo.includes(req.user.id)
-    ) {
-      return res.status(403).json({ success:false, message:'Forbidden' });
-    }
 
-    res.json({ success: true, data: a });
+   const a = await Assignment.findById(req.params.id)
+     .populate('questions')           // ← populate full question docs
+      .populate('visibleTo','name email')
+      .populate('createdBy','name email')
+   if (!a) return res.status(404).json({ success:false, message:'Not found' })
+   res.json({ success:true, data:a })
   } catch (err) {
-    next(err);
+    next(err)
   }
-};
+}
+
+
 
 // @desc Update an assignment
 exports.updateAssignment = async (req, res, next) => {
@@ -85,3 +162,167 @@ exports.deleteAssignment = async (req, res, next) => {
     next(err);
   }
 };
+
+
+ 
+
+// @desc Student submits assignment
+
+// @desc Student submits or saves draft
+exports.submitAssignment = async (req, res, next) => {
+   try {
+     const { id } = req.params
+     const studentId = req.user.id
+     const { answers = [], testCaseResults = [], saveDraft = false } = req.body
+
+      console.log('▼ ▼ ▼ submitAssignment called ▼ ▼ ▼');
+    console.log(' assignmentId:', id);
+    console.log(' studentId:  ', studentId);
+    console.log(' saveDraft:  ', saveDraft);
+    console.log(' answers:    ', JSON.stringify(answers));
+    console.log(' testCases:  ', JSON.stringify(testCaseResults));
+
+     // fetch assignment + questions
+     const assignment = await Assignment.findById(id).populate('questions')
+     if (!assignment) return res.status(404).json({ success:false, message:'Not found' })
+
+
+    // auto-grade only on final submit if no descriptive
+     const hasManual = assignment.questions.some(q => q.type==='descriptive')
+
+    let grade = null
+
+     if (!saveDraft && !hasManual) {
+       let correctCount = 0
+       assignment.questions.forEach(q => {
+         if (['mcq','msq'].includes(q.type)) {
+           const a = answers.find(x=>x.question.toString()===q._id.toString())
+           if (!a) return
+           const resp = a.response
+           const ok   = q.type==='mcq'
+             ? q.correctAnswers.includes(resp)
+             : Array.isArray(resp)
+               && resp.length === q.correctAnswers.length
+               && resp.every(r=>q.correctAnswers.includes(r))
+           if (ok) correctCount++
+         }
+       })
+       grade = correctCount
+     }
+
+     // delete prior submission
+     await Submission.deleteOne({ assignment:id, student:studentId })
+
+     const sub = await Submission.create({
+       assignment: id,
+       student: studentId,
+       answers,
+       testCaseResults,
+
+      grade:        saveDraft ? null : grade,
+      feedback:     null,
+      isFinal:      !saveDraft,
+       submittedAt:  new Date()
+     })
+      console.log(' ▲ ▲ ▲ Created submission ▲ ▲ ▲', sub);
+
+     res.json({ success:true, data: sub })
+   } catch(err) {
+     console.error('❌ submitAssignment error:', err);
+     next(err)
+   }
+ }
+
+
+
+
+
+// @desc Mentor/Admin: list all submissions
+exports.getSubmissions = async (req, res, next) => {
+  try {
+    const a = await Assignment.findById(req.params.id)
+      .populate('submissions.student','name email');
+    if (!a) return res.status(404).json({ success:false, message:'Not found' });
+    res.json({ success:true, data: a.submissions });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// @desc Mentor/Admin: get one student’s submission
+exports.getSubmission = async (req, res, next) => {
+  try {
+    const a = await Assignment.findById(req.params.id)
+      .populate('submissions.student','name email');
+    if (!a) return res.status(404).json({ success:false, message:'Not found' });
+
+    const sub = a.submissions.find(
+      s => s.student._id.toString() === req.params.studentId
+    );
+    if (!sub) {
+      return res.status(404).json({ success:false, message:'Submission not found' });
+    }
+    res.json({ success:true, data: sub });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// @desc Student: fetch their own submission
+exports.getMySubmission = async (req, res, next) => {
+  try {
+    const assignmentId = req.params.id
+    const studentId    = req.user.id
+
+    // look up their submission
+    const sub = await Submission.findOne({ assignment: assignmentId, student: studentId })
+      .lean()
+      .exec()
+
+    if (!sub) {
+      return res.status(404).json({ success: false, message: 'No submission found' })
+    }
+    res.json({ success: true, data: sub })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// @desc Mentor/Admin: grade a student’s submission
+exports.gradeSubmission = async (req, res, next) => {
+  try {
+    const { id, studentId } = req.params;
+    const { grade, feedback, answers: answerUpdates } = req.body;
+
+    const a = await Assignment.findById(id);
+    if (!a) return res.status(404).json({ success:false, message:'Assignment not found' });
+
+    // Find submission index
+    const idx = a.submissions.findIndex(s => s.student.toString() === studentId);
+    if (idx < 0) return res.status(404).json({ success:false, message:'Submission not found' });
+
+    // Update per-answer correctness if provided
+    if (Array.isArray(answerUpdates)) {
+      a.submissions[idx].answers = a.submissions[idx].answers.map(ansDoc => {
+        const upd = answerUpdates.find(u => u.question === ansDoc.question.toString());
+        if (upd && typeof upd.isCorrect === 'boolean') {
+          ansDoc.isCorrect = upd.isCorrect;
+        }
+        return ansDoc;
+      });
+    }
+
+    // Update grade & feedback
+    if (typeof grade === 'number')     a.submissions[idx].grade    = grade;
+    if (typeof feedback === 'string')  a.submissions[idx].feedback = feedback;
+
+    await a.save();
+
+    // Respond with the updated submission
+    const updated = a.submissions[idx].toObject();
+    res.json({ success:true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+};
+
