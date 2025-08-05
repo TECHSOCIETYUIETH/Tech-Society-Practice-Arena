@@ -13,7 +13,8 @@ const {
   submitAssignment,
   getSubmissions,
   getSubmission,
-  gradeSubmission
+  gradeSubmission,
+  getRankings
 } = require('../controllers/assignment')
 
 router.use(auth)
@@ -27,4 +28,5 @@ router.post(  '/:id/submit',                 authorize('student'),        submit
 router.get(   '/:id/submissions',            authorize('mentor','admin'), getSubmissions)
 router.get(   '/:id/submissions/:studentId', authorize('mentor','admin'), getSubmission)
 router.put(   '/:id/submissions/:studentId', authorize('mentor','admin'), gradeSubmission)
+router.get('/:id/rankings', authorize('mentor','admin'), getRankings)
 module.exports = router

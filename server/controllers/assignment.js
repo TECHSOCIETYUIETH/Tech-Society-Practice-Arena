@@ -44,56 +44,39 @@ exports.getAssignments = async (req, res, next) => {
 
 // controllers/assignment.js
 // @desc Student “My Assignments”
+// controllers/assignment.js
 exports.getMyAssignments = async (req, res, next) => {
   try {
     const me = req.user.id
-
-    // 1) fetch assignments visible to me
     const assigns = await Assignment.find({
-      $or: [
-        { visibleToAll: true },
-        { visibleTo: me }
-      ]
+      $or: [ { visibleToAll: true }, { visibleTo: me } ]
     })
-    .populate('questions','type')
-    .populate('createdBy','name')
+      .select('title startDate dueDate mode timeLimitMinutes visibleToAll createdBy questions')  // include mode & timeLimit
+      .populate('createdBy','name')
+      .lean()
 
-    // 2) batch‐fetch my submissions
     const subs = await Submission.find({
-      assignment: { $in: assigns.map(a=>a._id) },
+      assignment: { $in: assigns.map(a => a._id) },
       student: me
     }).lean()
+
     const subMap = {}
-    subs.forEach(s => {
-      subMap[s.assignment.toString()] = s
-    })
+    subs.forEach(s => subMap[s.assignment.toString()] = s)
 
     const now = new Date()
     const data = assigns.map(a => {
       const sub = subMap[a._id.toString()] || null
-      const hasManual = a.questions.some(q => q.type === 'descriptive')
-      let studentStatus
 
+      let studentStatus
       if (!sub) {
-        // no draft or final → either upcoming, closed or fresh pending
-        if (a.startDate && now < a.startDate)             
-              studentStatus = 'upcoming'
-        else if (a.status!=='open' || (a.dueDate && now > a.dueDate)) 
-            studentStatus = 'closed'
-        else                                                
-             studentStatus = 'pending'
+        if (a.startDate && now < a.startDate) studentStatus = 'upcoming'
+        else if (a.dueDate && now > a.dueDate) studentStatus = 'closed'
+        else studentStatus = 'pending'
       } else {
-        // sub exists
-        if (!sub.isFinal) {
-          // draft only
-          studentStatus = 'pending'
-        } else if (hasManual && sub.grade == null) {
-          // final + needs manual grading
-          studentStatus = 'pendingReview'
-        } else {
-          // final + auto‐graded or manually graded
-          studentStatus = 'completed'
-        }
+        const hasManual = a.questions.some(q => q.type==='descriptive')
+        studentStatus = hasManual && sub.isFinal===false 
+          ? 'pendingReview'
+          : 'completed'
       }
 
       return {
@@ -101,6 +84,8 @@ exports.getMyAssignments = async (req, res, next) => {
         title: a.title,
         startDate: a.startDate,
         dueDate: a.dueDate,
+        mode: a.mode,
+        timeLimitMinutes: a.timeLimitMinutes,
         visibleToAll: a.visibleToAll,
         createdBy: a.createdBy,
         questionsCount: a.questions.length,
@@ -326,3 +311,32 @@ exports.gradeSubmission = async (req, res, next) => {
   }
 };
 
+exports.getRankings = async (req, res, next) => {
+  try {
+    const { id } = req.params
+    const subs = await Submission.find({ assignment: id, isFinal: true })
+      .populate('student', 'name')
+      .lean()
+
+    // sort descending by grade
+    subs.sort((a, b) => b.grade - a.grade)
+
+    // assign ranks, tie = same rank, then skip
+    let lastScore = null, lastRank = 0
+    const rankings = subs.map((s, idx) => {
+      if (s.grade !== lastScore) {
+        lastRank = idx + 1
+        lastScore = s.grade
+      }
+      return {
+        student: s.student.name,
+        grade: s.grade,
+        rank: lastRank
+      }
+    })
+
+    res.json({ success: true, data: rankings })
+  } catch (err) {
+    next(err)
+  }
+}

@@ -4,6 +4,7 @@ import { useQuery } from 'react-query'
 import API from '../api/api.js'
 import { toast } from 'react-hot-toast'
 import AuthContext from '../contexts/AuthContext.jsx'
+import { formatDistanceToNowStrict } from 'date-fns'
 
 export default function SubmissionForm() {
   const { id } = useParams()
@@ -16,39 +17,63 @@ export default function SubmissionForm() {
   const [submitting, setSubmitting]           = useState(false)
 
   // 1) load assignment
-  const { data: assignment, isLoading: aL } = useQuery(
+  const { data: assignment, isLoading: aLoading } = useQuery(
     ['assignment', id],
     () => API.get(`/assignments/${id}`).then(r => r.data.data)
   )
 
-  // 2) load existing submission (draft or final) — only when we have both assignment & user
+  // 2) derive mode & due timestamp
+  const mode = assignment?.mode
+  const dueDateMs = assignment?.dueDate
+    ? new Date(assignment.dueDate).getTime()
+    : (mode !== 'assignment' && assignment?.timeLimitMinutes
+        ? Date.now() + assignment.timeLimitMinutes * 60_000
+        : null)
+
+  // 3) live clock
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    if ((mode === 'quiz' || mode === 'test') && dueDateMs) {
+      const iv = setInterval(() => setNow(Date.now()), 1000)
+      return () => clearInterval(iv)
+    }
+  }, [mode, dueDateMs])
+
+  const remainingMs = dueDateMs ? Math.max(dueDateMs - now, 0) : 0
+  const hrs = String(Math.floor(remainingMs / 3600000)).padStart(2,'0')
+  const mins = String(Math.floor((remainingMs % 3600000)/60000)).padStart(2,'0')
+  const secs = String(Math.floor((remainingMs % 60000)/1000)).padStart(2,'0')
+  const timerDisplay = `${hrs}:${mins}:${secs}`
+
+  // 4) auto-submit when done
+  useEffect(() => {
+    if (remainingMs === 0 && (mode === 'quiz' || mode === 'test')) {
+      handleFinal(new Event('auto'))
+    }
+  }, [remainingMs])
+
+  // 5) load existing submission
   const userId = user?._id
-  const { data: existing, isLoading: sL } = useQuery(
+  const { data: existing, isLoading: sLoading } = useQuery(
     ['submission', id, userId],
-    () => {
-      console.log('[SubmissionForm] fetching existing for', userId)
-      return API.get(`/assignments/${id}/submission`)
-                .then(r => r.data.data)
-    },
+    () => API.get(`/assignments/${id}/submission`).then(r => r.data.data),
     {
       enabled: !!assignment && !!userId,
       retry: false,
-      onError: err => {
-        console.warn('[SubmissionForm] no existing submission or forbidden', err)
-      }
+      onError: () => {}
     }
   )
 
-  // 3) when existing arrives, populate state
+  // 6) populate answers
   useEffect(() => {
-    console.log('[SubmissionForm] existing submission:', existing)
     if (existing) {
       setAnswers(existing.answers)
       setTestCaseResults(existing.testCaseResults || [])
     }
   }, [existing])
 
-  if (aL || sL) {
+  // 7) handle loading & missing assignment
+  if (aLoading || sLoading) {
     return <p className="p-6 text-center">Loading…</p>
   }
   if (!assignment) {
@@ -69,18 +94,11 @@ export default function SubmissionForm() {
 
   async function handleSave(e) {
     e.preventDefault()
-    console.log('[SubmissionForm] handleSave payload:', { answers, testCaseResults })
     setSaving(true)
     try {
-      const res = await API.post(`/assignments/${id}/submit`, {
-        answers,
-        testCaseResults,
-        saveDraft: true
-      })
-      console.log('[SubmissionForm] draft-saved response:', res.data)
+      await API.post(`/assignments/${id}/submit`, { answers, testCaseResults, saveDraft: true })
       toast.success('Draft saved')
-    } catch (err) {
-      console.error('[SubmissionForm] saveDraft error:', err)
+    } catch {
       toast.error('Save failed')
     } finally {
       setSaving(false)
@@ -89,19 +107,12 @@ export default function SubmissionForm() {
 
   async function handleFinal(e) {
     e.preventDefault()
-    console.log('[SubmissionForm] handleFinal payload:', { answers, testCaseResults })
     setSubmitting(true)
     try {
-      const res = await API.post(`/assignments/${id}/submit`, {
-        answers,
-        testCaseResults,
-        saveDraft: false
-      })
-      console.log('[SubmissionForm] final-submit response:', res.data)
+      await API.post(`/assignments/${id}/submit`, { answers, testCaseResults, saveDraft: false })
       toast.success('Submitted!')
       navigate('/')
-    } catch (err) {
-      console.error('[SubmissionForm] final submit error:', err)
+    } catch {
       toast.error('Submit failed')
     } finally {
       setSubmitting(false)
@@ -111,17 +122,23 @@ export default function SubmissionForm() {
   return (
     <div className="p-6 max-w-3xl mx-auto bg-white rounded shadow space-y-6">
       <h2 className="text-xl font-semibold">{assignment.title}</h2>
+
+      {/* Live timer banner */}
+      {(mode === 'quiz' || mode === 'test') && (
+        <div className="flex justify-center mb-4">
+          <div className="bg-red-100 text-red-700 font-mono text-lg px-4 py-2 rounded-lg shadow-inner">
+            ⏱ {timerDisplay}
+          </div>
+        </div>
+      )}
+
       <form className="space-y-6">
         {assignment.questions.map(q => {
           const ans = answers.find(a => a.question === q._id)
           const resp = ans?.response
-
           return (
             <div key={q._id} className="space-y-2">
-              <div
-                className="prose"
-                dangerouslySetInnerHTML={{ __html: q.content }}
-              />
+              <div className="prose" dangerouslySetInnerHTML={{ __html: q.content }} />
 
               {(q.type === 'mcq' || q.type === 'msq') &&
                 q.options.map(o => (
@@ -135,13 +152,10 @@ export default function SubmissionForm() {
                           : Array.isArray(resp) && resp.includes(o.id)
                       }
                       onChange={() => {
-                        if (q.type === 'mcq') {
-                          updateAnswer(q._id, o.id)
-                        } else {
+                        if (q.type === 'mcq') updateAnswer(q._id, o.id)
+                        else {
                           let arr = Array.isArray(resp) ? [...resp] : []
-                          arr = arr.includes(o.id)
-                            ? arr.filter(x => x !== o.id)
-                            : [...arr, o.id]
+                          arr = arr.includes(o.id) ? arr.filter(x => x !== o.id) : [...arr, o.id]
                           updateAnswer(q._id, arr)
                         }
                       }}
