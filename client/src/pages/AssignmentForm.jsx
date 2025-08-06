@@ -21,7 +21,9 @@ import {
   BookOpen,
   Code,
   FileText,
-  Lightbulb
+  Lightbulb,
+  GraduationCap,
+  Building
 } from 'lucide-react'
 
 export default function AssignmentForm() {
@@ -50,7 +52,10 @@ export default function AssignmentForm() {
   const [qSortKey, setQSortKey] = useState('createdAt')
   const [qSortAsc, setQSortAsc] = useState(false)
   const [sSearch, setSSearch] = useState('')
+  const [sBranchFilter, setSBranchFilter] = useState('')
+  const [sYearFilter, setSYearFilter] = useState('')
   const [showQuestionFilters, setShowQuestionFilters] = useState(false)
+  const [showStudentFilters, setShowStudentFilters] = useState(false)
 
   // All useQuery hooks at top level
   const { data: allQuestions = [], isLoading: questionsLoading } = useQuery(
@@ -67,13 +72,13 @@ export default function AssignmentForm() {
   )
 
   const { data: allStudents = [], isLoading: studentsLoading } = useQuery(
-    'students', 
-    () => API.get('/users').then(r => {
+    'studentsByRole',
+    () => API.get('/users/by-role?role=student').then(r => {
       console.debug('[AssignmentForm] fetched students:', r.data.data?.length, 'students')
       return r.data.data
     }),
     {
-      staleTime: 5 * 60 * 1000,
+      staleTime: 300_000,
       refetchOnWindowFocus: false,
       retry: 2
     }
@@ -122,11 +127,20 @@ export default function AssignmentForm() {
   }, [allQuestions, qSearch, qTypeFilter, qDiffFilter, qSortKey, qSortAsc])
 
   const filteredStudents = useMemo(() => {
-    return allStudents.filter(u =>
-      u.name.toLowerCase().includes(sSearch.toLowerCase()) ||
-      u.email.toLowerCase().includes(sSearch.toLowerCase())
-    )
-  }, [allStudents, sSearch])
+    return allStudents.filter(u => {
+      // Text search
+      const matchesSearch = u.name.toLowerCase().includes(sSearch.toLowerCase()) ||
+                           u.email.toLowerCase().includes(sSearch.toLowerCase())
+      
+      // Branch filter
+      const matchesBranch = !sBranchFilter || u.branch === sBranchFilter
+      
+      // Year filter
+      const matchesYear = !sYearFilter || u.year === sYearFilter
+      
+      return matchesSearch && matchesBranch && matchesYear
+    })
+  }, [allStudents, sSearch, sBranchFilter, sYearFilter])
 
   const selectedQuestions = useMemo(() => {
     return allQuestions.filter(q => form.questions.includes(q._id))
@@ -135,6 +149,17 @@ export default function AssignmentForm() {
   const selectedStudents = useMemo(() => {
     return allStudents.filter(u => form.visibleTo.includes(u._id))
   }, [allStudents, form.visibleTo])
+
+  // Get unique branches and years for filters
+  const availableBranches = useMemo(() => {
+    const branches = [...new Set(allStudents.map(s => s.branch).filter(Boolean))]
+    return branches.sort()
+  }, [allStudents])
+
+  const availableYears = useMemo(() => {
+    const years = [...new Set(allStudents.map(s => s.year).filter(Boolean))]
+    return years.sort()
+  }, [allStudents])
 
   // All useCallback hooks at top level
   const toggleQuestion = useCallback((qid) => {
@@ -562,7 +587,24 @@ export default function AssignmentForm() {
           {/* Visibility Settings */}
           <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
             <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-8 py-6">
-              <h2 className="text-2xl font-bold text-white">Visibility Settings</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-white">Visibility Settings</h2>
+                {!form.visibleToAll && (
+                  <div className="flex items-center gap-4">
+                    <span className="bg-white/20 px-3 py-1 rounded-full text-sm font-medium">
+                      {form.visibleTo.length} students selected
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowStudentFilters(!showStudentFilters)}
+                      className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-xl transition-colors flex items-center gap-2"
+                    >
+                      <Filter size={16} />
+                      Filters
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="p-8 space-y-6">
               
@@ -598,16 +640,56 @@ export default function AssignmentForm() {
                     </span>
                   </div>
                   
-                  {/* Student Search */}
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-                    <input
-                      placeholder="Search students..."
-                      value={sSearch}
-                      onChange={e => setSSearch(e.target.value)}
-                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    />
-                  </div>
+                  {/* Student Filters */}
+                  {showStudentFilters && (
+                    <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                          <input
+                            placeholder="Search students..."
+                            value={sSearch}
+                            onChange={e => setSSearch(e.target.value)}
+                            className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                          />
+                        </div>
+                        
+                        <select
+                          value={sBranchFilter}
+                          onChange={e => setSBranchFilter(e.target.value)}
+                          className="px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        >
+                          <option value="">All Branches</option>
+                          {availableBranches.map(branch => (
+                            <option key={branch} value={branch}>{branch}</option>
+                          ))}
+                        </select>
+                        
+                        <select
+                          value={sYearFilter}
+                          onChange={e => setSYearFilter(e.target.value)}
+                          className="px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        >
+                          <option value="">All Years</option>
+                          {availableYears.map(year => (
+                            <option key={year} value={year}>{year}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {!showStudentFilters && (
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                      <input
+                        placeholder="Search students..."
+                        value={sSearch}
+                        onChange={e => setSSearch(e.target.value)}
+                        className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      />
+                    </div>
+                  )}
                   
                   {/* Selected Students Summary */}
                   {selectedStudents.length > 0 && (
@@ -648,6 +730,20 @@ export default function AssignmentForm() {
                             <div className="flex-1 min-w-0">
                               <div className="font-semibold text-gray-900 truncate">{s.name}</div>
                               <div className="text-sm text-gray-600 truncate">{s.email}</div>
+                              <div className="flex items-center gap-4 mt-1">
+                                {s.branch && (
+                                  <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                                    <Building size={12} />
+                                    {s.branch}
+                                  </span>
+                                )}
+                                {s.year && (
+                                  <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                                    <GraduationCap size={12} />
+                                    {s.year}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             {selected && (
                               <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0 ml-2" />
@@ -657,6 +753,19 @@ export default function AssignmentForm() {
                       )
                     })}
                   </div>
+
+                  {/* No students message */}
+                  {filteredStudents.length === 0 && (
+                    <div className="text-center py-8">
+                      <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                      <h4 className="text-lg font-medium text-gray-700 mb-1">No Students Found</h4>
+                      <p className="text-gray-500 text-sm">
+                        {sSearch || sBranchFilter || sYearFilter 
+                          ? 'Try adjusting your search or filter criteria' 
+                          : 'No students available for selection'}
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

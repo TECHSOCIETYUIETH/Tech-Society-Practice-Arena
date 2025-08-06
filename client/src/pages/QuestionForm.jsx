@@ -47,6 +47,7 @@ export default function QuestionForm() {
   const [submitting, setSubmitting] = useState(false)
   const [loading, setLoading] = useState(false)
   const [activeSection, setActiveSection] = useState('content')
+  const [topicsInput, setTopicsInput] = useState('') // Separate state for topics input
 
   // 📝 Memoized Quill configuration for performance
   const quillConfig = useMemo(() => ({
@@ -75,7 +76,14 @@ export default function QuestionForm() {
       try {
         const response = await API.get(`/questions/${id}`)
         console.debug('[QuestionForm] loaded question:', response.data.data)
-        setQ(response.data.data)
+        const questionData = response.data.data
+        setQ(questionData)
+        
+        // Set the topics input string
+        if (questionData.tags && questionData.tags.topics) {
+          setTopicsInput(questionData.tags.topics.join(', '))
+        }
+        
         toast.success('Question loaded successfully!')
       } catch (error) {
         console.error('[QuestionForm] load error:', error)
@@ -88,6 +96,39 @@ export default function QuestionForm() {
     
     loadQuestion()
   }, [editMode, id, navigate])
+
+  // Handle topics input changes
+  const handleTopicsChange = useCallback((value) => {
+    setTopicsInput(value)
+    
+    // Parse topics from the input string
+    const topics = value
+      .split(/[,;]+/) // Split by comma or semicolon
+      .map(topic => topic.trim()) // Trim whitespace
+      .filter(topic => topic.length > 0) // Remove empty strings
+      .filter((topic, index, arr) => arr.indexOf(topic) === index) // Remove duplicates
+    
+    setQ(prev => ({
+      ...prev,
+      tags: {
+        ...prev.tags,
+        topics: topics
+      }
+    }))
+  }, [])
+
+  // Remove individual topic
+  const removeTopic = useCallback((topicToRemove) => {
+    const updatedTopics = q.tags.topics.filter(topic => topic !== topicToRemove)
+    setQ(prev => ({
+      ...prev,
+      tags: {
+        ...prev.tags,
+        topics: updatedTopics
+      }
+    }))
+    setTopicsInput(updatedTopics.join(', '))
+  }, [q.tags.topics])
 
   // 🎨 Style helpers
   const getTypeConfig = useCallback((type) => ({
@@ -621,24 +662,52 @@ export default function QuestionForm() {
                 <Tag size={20} />
                 Topics
               </label>
-              <input
-                placeholder="Enter topics separated by commas (e.g., JavaScript, Arrays, Algorithms)"
-                value={q.tags.topics.join(',')}
-                onChange={e => setQ({
-                  ...q,
-                  tags: {
-                    ...q.tags,
-                    topics: e.target.value.split(',').map(s => s.trim()).filter(t => t)
-                  }
-                })}
-                className="w-full px-4 py-3 border border-gray-300 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all bg-gray-50 hover:bg-white"
-              />
-              <div className="flex flex-wrap gap-2 mt-3">
-                {q.tags.topics.map((topic, idx) => (
-                  <span key={idx} className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-                    {topic}
-                  </span>
-                ))}
+              <div className="space-y-3">
+                <input
+                  placeholder="Enter topics separated by commas (e.g., JavaScript, Arrays, Algorithms)"
+                  value={topicsInput}
+                  onChange={e => handleTopicsChange(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all bg-gray-50 hover:bg-white"
+                  onKeyDown={e => {
+                    // Handle Enter key to add topic
+                    if (e.key === 'Enter' && e.target.value.trim()) {
+                      e.preventDefault()
+                      const newTopic = e.target.value.trim().split(',').pop().trim()
+                      if (newTopic && !q.tags.topics.includes(newTopic)) {
+                        const updatedTopics = [...q.tags.topics, newTopic]
+                        setQ(prev => ({
+                          ...prev,
+                          tags: { ...prev.tags, topics: updatedTopics }
+                        }))
+                        setTopicsInput(updatedTopics.join(', '))
+                      }
+                    }
+                  }}
+                />
+                <p className="text-sm text-gray-500">
+                  Type topics separated by commas or semicolons. Press Enter to add the current topic.
+                </p>
+                
+                {/* Display topic tags */}
+                {q.tags.topics.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {q.tags.topics.map((topic, idx) => (
+                      <span 
+                        key={idx} 
+                        className="inline-flex items-center gap-2 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium"
+                      >
+                        {topic}
+                        <button
+                          type="button"
+                          onClick={() => removeTopic(topic)}
+                          className="hover:bg-blue-200 rounded-full p-0.5 transition-colors"
+                        >
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
