@@ -20,7 +20,7 @@ exports.getStats = async (req, res, next) => {
     res.json({ success:true, data:{
       totalUsers,
       totalAssignments: totalAssign,
-      totalQuizzes,
+      totalQuizzes, 
       totalTests,
       pendingReviews
     }});

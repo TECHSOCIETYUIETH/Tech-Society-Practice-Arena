@@ -119,6 +119,25 @@ exports.getAssignment = async (req, res, next) => {
   }
 }
 
+exports.getMySubmission = async (req, res, next) => {
+  try {
+    const assignmentId = req.params.id;
+    const studentId    = req.user.id;
+    const sub = await Submission.findOne({
+      assignment: assignmentId,
+      student:    studentId
+    });
+    if (!sub) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'No submission found' });
+    }
+    res.json({ success: true, data: sub });
+  } catch (err) {
+    next(err);
+  }
+};
+
 
 
 // @desc Update an assignment
@@ -155,69 +174,75 @@ exports.deleteAssignment = async (req, res, next) => {
 // @desc Student submits assignment
 
 // @desc Student submits or saves draft
+// controllers/assignment.js
+
+// controllers/assignment.js
 exports.submitAssignment = async (req, res, next) => {
-   try {
-     const { id } = req.params
-     const studentId = req.user.id
-     const { answers = [], testCaseResults = [], saveDraft = false } = req.body
+  try {
+    const { id } = req.params;
+    const studentId = req.user.id;
+    const {
+      answers = [],
+      testCaseResults = [],
+      isFinal = true,
+      timeTakenMs = null
+    } = req.body;
 
-      console.log('▼ ▼ ▼ submitAssignment called ▼ ▼ ▼');
-    console.log(' assignmentId:', id);
-    console.log(' studentId:  ', studentId);
-    console.log(' saveDraft:  ', saveDraft);
-    console.log(' answers:    ', JSON.stringify(answers));
-    console.log(' testCases:  ', JSON.stringify(testCaseResults));
+    // 1) Fetch the assignment and its questions
+    const assignment = await Assignment.findById(id).populate('questions');
+    if (!assignment) {
+      return res.status(404).json({ success:false, message:'Assignment not found' });
+    }
 
-     // fetch assignment + questions
-     const assignment = await Assignment.findById(id).populate('questions')
-     if (!assignment) return res.status(404).json({ success:false, message:'Not found' })
+    // 2) Check visibility (public or explicitly granted)
+    if (
+      !assignment.visibleToAll &&
+      !assignment.visibleTo.some(u => u.toString() === studentId)
+    ) {
+      return res.status(403).json({ success:false, message:'Forbidden' });
+    }
+
+    // 3) If this is a final submission AND there are no descriptive questions, auto-grade
+    let grade = null;
+    const hasManual = assignment.questions.some(q => q.type === 'descriptive');
+    if (isFinal && !hasManual) {
+      grade = assignment.questions.reduce((count, q) => {
+        if (!['mcq','msq'].includes(q.type)) return count;
+        const ans = answers.find(a => a.question.toString() === q._id.toString());
+        if (!ans) return count;
+        const resp = ans.response;
+        const correct = q.type === 'mcq'
+          ? q.correctAnswers.includes(resp)
+          : Array.isArray(resp)
+            && resp.length === q.correctAnswers.length
+            && resp.every(r => q.correctAnswers.includes(r));
+        return correct ? count + 1 : count;
+      }, 0);
+    }
+
+    // 4) Upsert the submission (draft or final)
+    const submission = await Submission.findOneAndUpdate(
+      { assignment: id, student: studentId },
+      {
+        $set: {
+          answers,
+          testCaseResults,
+          grade,
+          isFinal,
+          timeTakenMs,
+          submittedAt: new Date()
+        }
+      },
+      { new: true, upsert: true }
+    );
+
+    return res.json({ success:true, data: submission });
+  } catch (err) {
+    next(err);
+  }
+};
 
 
-    // auto-grade only on final submit if no descriptive
-     const hasManual = assignment.questions.some(q => q.type==='descriptive')
-
-    let grade = null
-
-     if (!saveDraft && !hasManual) {
-       let correctCount = 0
-       assignment.questions.forEach(q => {
-         if (['mcq','msq'].includes(q.type)) {
-           const a = answers.find(x=>x.question.toString()===q._id.toString())
-           if (!a) return
-           const resp = a.response
-           const ok   = q.type==='mcq'
-             ? q.correctAnswers.includes(resp)
-             : Array.isArray(resp)
-               && resp.length === q.correctAnswers.length
-               && resp.every(r=>q.correctAnswers.includes(r))
-           if (ok) correctCount++
-         }
-       })
-       grade = correctCount
-     }
-
-     // delete prior submission
-     await Submission.deleteOne({ assignment:id, student:studentId })
-
-     const sub = await Submission.create({
-       assignment: id,
-       student: studentId,
-       answers,
-       testCaseResults,
-
-      grade:        saveDraft ? null : grade,
-      feedback:     null,
-      isFinal:      !saveDraft,
-       submittedAt:  new Date()
-     })
-      console.log(' ▲ ▲ ▲ Created submission ▲ ▲ ▲', sub);
-
-     res.json({ success:true, data: sub })
-   } catch(err) {
-     console.error('❌ submitAssignment error:', err);
-     next(err)
-   }
- }
 
 
 
@@ -254,25 +279,7 @@ exports.getSubmission = async (req, res, next) => {
   }
 }
 
-// @desc Student: fetch their own submission
-exports.getMySubmission = async (req, res, next) => {
-  try {
-    const assignmentId = req.params.id
-    const studentId    = req.user.id
 
-    // look up their submission
-    const sub = await Submission.findOne({ assignment: assignmentId, student: studentId })
-      .lean()
-      .exec()
-
-    if (!sub) {
-      return res.status(404).json({ success: false, message: 'No submission found' })
-    }
-    res.json({ success: true, data: sub })
-  } catch (err) {
-    next(err)
-  }
-}
 
 // @desc Mentor/Admin: grade a student’s submission
 exports.gradeSubmission = async (req, res, next) => {

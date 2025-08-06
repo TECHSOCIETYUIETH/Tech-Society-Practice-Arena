@@ -31,7 +31,7 @@ app.use(express.json())
 // — Auth-specific rate limiter (200 requests / 15 min)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 2000,
+  max: 20000,
   message: { success: false, message: 'Too many auth attempts, please try again later.' }
 })
 app.use('/api/auth/login', authLimiter)
@@ -40,7 +40,7 @@ app.use('/api/auth/register', authLimiter)
 // — General rate limiter (100 requests / 15 min)
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 1000,
   message: { success: false, message: 'Too many requests, please slow down.' }
 })
 app.use(generalLimiter)
@@ -54,6 +54,7 @@ app.use('/api/assignments', auth, assignmentRoutes)
 app.use('/api/assignments', auth, submissionRoutes)
 app.use('/api/upload', auth, uploadRoutes)
 app.use('/api/users', auth, userRoutes)
+app.use('/api/stats', auth, require('./routes/stats'))
 
 // — Health check
 app.get('/', (req, res) => {

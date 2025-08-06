@@ -10,6 +10,7 @@ const userSchema = new mongoose.Schema({
   branch:     { type:String, required:true },
   year:       { type:String, required:true },
   isVerified: { type:Boolean, default:false },
+  
   verifyToken:       String,
   verifyTokenExpiry: Date,
   resetPasswordToken:       String,

@@ -15,7 +15,7 @@ async function sendMail({ to, subject, html }) {
           Email: to
         }],
         Subject:  subject,
-        HTMLPart: html
+        HTMLPart: html 
       }]
     })
 }

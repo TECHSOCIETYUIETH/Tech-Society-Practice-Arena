@@ -22,6 +22,7 @@ const submissionSchema = new mongoose.Schema({
   isFinal:        { type: Boolean, default: false },
   submittedAt:    { type: Date, default: Date.now }
 })
+submissionSchema.index({ assignment:1, student:1, isFinal:1 }, { unique:true });
 
 module.exports = mongoose.model('Submission', submissionSchema)
  

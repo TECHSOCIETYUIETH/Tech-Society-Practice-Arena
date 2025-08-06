@@ -1,42 +1,29 @@
 // routes/assignments.js
-const express   = require('express')
-const router    = express.Router()
-const auth      = require('../middleware/auth')
-const authorize = require('../middleware/authorize')
-const {
-  createAssignment,
-  getAssignments,
-  getMyAssignments,
-  getAssignment,
-  updateAssignment,
-  deleteAssignment,
-  submitAssignment,
-  getSubmissions,
-  getSubmission,
-  gradeSubmission,
-  getRankings,
-  dispatchAssignment,
-  undispatchAssignment
-} = require('../controllers/assignment')
+const express   = require('express');
+const router    = express.Router();
+const auth      = require('../middleware/auth');
+const authorize = require('../middleware/authorize');
+const ctrl      = require('../controllers/assignment');
 
-router.use(auth)
-router.get(   '/me',                         authorize('student'),        getMyAssignments)
-router.post(  '/',                           authorize('mentor','admin'), createAssignment)
-router.get(   '/',                           authorize('mentor','admin'), getAssignments)
-router.get(   '/:id',                        getAssignment)
-router.get('/:id/rankings', authorize('mentor','admin'), getRankings)
-// dispatch ↔ pull-back
-router.put  ('/:id/dispatch',      authorize('mentor','admin'), dispatchAssignment)
-router.put  ('/:id/undispatch',    authorize('mentor','admin'), undispatchAssignment)
-router.put(   '/:id',                        authorize('mentor','admin'), updateAssignment)
-router.delete('/:id',                        authorize('mentor','admin'), deleteAssignment)
-router.post(  '/:id/submit',                 authorize('student'),        submitAssignment)
-router.get(   '/:id/submissions',            authorize('mentor','admin'), getSubmissions)
-router.get(   '/:id/submissions/:studentId', authorize('mentor','admin'), getSubmission)
-router.put(   '/:id/submissions/:studentId', authorize('mentor','admin'), gradeSubmission)
-// only mentors/admins:
-router.put('/:id/dispatch',
-  authorize('mentor','admin'),
-  dispatchAssignment
-)
-module.exports = router
+router.use(auth);
+
+// student “my assignments” + fetch my own submission
+router.get(   '/me',                          authorize('student'),       ctrl.getMyAssignments);
+router.get(   '/:id/submission',              authorize('student'),       ctrl.getMySubmission);
+router.post(  '/:id/submit',                  authorize('student'),       ctrl.submitAssignment);
+
+// mentor/Admin CRUD & review
+router.post(  '/',                            authorize('mentor','admin'), ctrl.createAssignment);
+router.get(   '/',                            authorize('mentor','admin'), ctrl.getAssignments);
+router.get(   '/:id',                         ctrl.getAssignment);
+router.put(   '/:id/dispatch',                authorize('mentor','admin'), ctrl.dispatchAssignment);
+router.put(   '/:id/undispatch',              authorize('mentor','admin'), ctrl.undispatchAssignment);
+router.put(   '/:id',                         authorize('mentor','admin'), ctrl.updateAssignment);
+router.delete('/:id',                         authorize('mentor','admin'), ctrl.deleteAssignment);
+
+// mentor/Admin: list & grade submissions
+router.get(   '/:id/submissions',             authorize('mentor','admin'), ctrl.getSubmissions);
+router.get(   '/:id/submissions/:studentId',  authorize('mentor','admin'), ctrl.getSubmission);
+router.put(   '/:id/submissions/:studentId',  authorize('mentor','admin'), ctrl.gradeSubmission);
+
+module.exports = router;
