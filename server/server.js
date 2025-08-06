@@ -1,4 +1,3 @@
-// server.js
 require('dotenv').config()
 const express       = require('express')
 const cors          = require('cors')
@@ -28,33 +27,27 @@ app.use(helmet())
 app.use(cors({ origin: process.env.CLIENT_URL }))
 app.use(express.json())
 
-// — Auth-specific rate limiter (200 requests / 15 min)
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20000,
-  message: { success: false, message: 'Too many auth attempts, please try again later.' }
+// — Global rate limiter: 100 requests per IP per minute
+const limiter = rateLimit({
+  windowMs: 60 * 1000,         // 1 minute
+  max: 100,                    // limit each IP to 100 requests per windowMs
+  message: {
+    success: false,
+    message: 'Too many requests from this IP, please try again later.'
+  }
 })
-app.use('/api/auth/login', authLimiter)
-app.use('/api/auth/register', authLimiter)
-
-// — General rate limiter (100 requests / 15 min)
-const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 1000,
-  message: { success: false, message: 'Too many requests, please slow down.' }
-})
-app.use(generalLimiter)
+app.use(limiter)
 
 // — Public (no auth) routes
 app.use('/api/auth', authRoutes)
 
 // — Protected routes (JWT auth required)
-app.use('/api/questions', auth, questionRoutes)
+app.use('/api/questions',   auth, questionRoutes)
 app.use('/api/assignments', auth, assignmentRoutes)
 app.use('/api/assignments', auth, submissionRoutes)
-app.use('/api/upload', auth, uploadRoutes)
-app.use('/api/users', auth, userRoutes)
-app.use('/api/stats', auth, require('./routes/stats'))
+app.use('/api/upload',      auth, uploadRoutes)
+app.use('/api/users',       auth, userRoutes)
+app.use('/api/stats',       auth, require('./routes/stats'))
 
 // — Health check
 app.get('/', (req, res) => {

@@ -260,9 +260,9 @@ export default function AdminDashboard() {
                 <StatCard label="Assignments Live" value={stats?.totalAssignments} icon={BookOpen} />
                 <StatCard label="Quizzes Live"     value={stats?.totalQuizzes}     icon={Edit3} />
                 <StatCard label="Tests Live"       value={stats?.totalTests}       icon={Clock} />
-                <StatCard label="Assignments Open" value={stats?.ongoingAssignments} icon={BookOpen} />
-                <StatCard label="Quizzes Open"     value={stats?.ongoingQuizzes}     icon={Edit3} />
-                <StatCard label="Tests Open"       value={stats?.ongoingTests}       icon={Clock} />
+                <StatCard label="Questions" value={stats?.totalQuestions} icon={BookOpen} />
+                {/* <StatCard label="Quizzes Open"     value={stats?.ongoingQuizzes}     icon={Edit3} />
+                <StatCard label="Tests Open"       value={stats?.ongoingTests}       icon={Clock} /> */}
                 <StatCard label="Total Submissions" value={stats?.totalSubs}        icon={CheckCircle2} />
                 <StatCard label="Pending Review"    value={stats?.pendingReview}    icon={AlertCircle} />
               </div>

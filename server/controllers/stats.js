@@ -2,19 +2,36 @@
 const User       = require('../models/User')
 const Assignment = require('../models/Assignment')
 const Submission = require('../models/Submission')
+const Question   = require('../models/Question')
 
 exports.getDashboardStats = async (req, res, next) => {
   try {
     // Only for mentor/admin
-    if (!['mentor','admin'].includes(req.user.role))
+    if (!['mentor','admin'].includes(req.user.role)) {
       return res.status(403).json({ success:false })
+    }
 
     // 1) Global counts
-    const [ totalStudents, totalAssignments, totalQuizzes, totalTests ] = await Promise.all([
+    const [
+      totalStudents,
+      totalAssignments,
+      totalQuizzes,
+      totalTests,
+      totalQuestions,
+      mcqCount,
+      msqCount,
+      descriptiveCount,
+      imageCount
+    ] = await Promise.all([
       User.countDocuments({ role:'student' }),
       Assignment.countDocuments({ mode:'assignment' }),
       Assignment.countDocuments({ mode:'quiz' }),
       Assignment.countDocuments({ mode:'test' }),
+      Question.countDocuments(),
+      Question.countDocuments({ type:'mcq' }),
+      Question.countDocuments({ type:'msq' }),
+      Question.countDocuments({ type:'descriptive' }),
+      Question.countDocuments({ type:'image' })
     ])
 
     // 2) Dispatched vs drafts per mode
@@ -25,67 +42,70 @@ exports.getDashboardStats = async (req, res, next) => {
           drafts:      { $sum: { $cond: ['$isDispatched',0,1] } }
       }}
     ])
-    // 3) Leaderboards: for quizzes/tests sort by grade desc
-   // 3) Leaderboards: for quizzes/tests sort by grade desc, include student info
-const leaderboard = await Submission.aggregate([
-  // only submissions with a grade
-  { $match: { grade: { $ne: null } } },
 
-  // join in assignment details
-  { $lookup: {
-      from: 'assignments',
-      localField: 'assignment',
-      foreignField: '_id',
-      as: 'assignment'
-  }},
-  { $unwind: '$assignment' },
-
-  // only quizzes & tests
-  { $match: { 'assignment.mode': { $in: ['quiz','test'] } } },
-
-  // join in student document
-  { $lookup: {
-      from: 'users',
-      localField: 'student',
-      foreignField: '_id',
-      as: 'student'
-  }},
-  { $unwind: '$student' },
-
-  // group by assignment, accumulating student + grade pairs
-  { $group: {
-      _id: '$assignment._id',
-      title: { $first: '$assignment.title' },
-      scores: { 
-        $push: {
-          student: {
-            _id:   '$student._id',
-            name:  '$student.name',
-            email: '$student.email'   // or whatever fields you want
-          },
-          grade: '$grade'
-        }
-      }
-  }},
-
-  // sort each scores array descending and take top 5
-  { $project: {
-      title: 1,
-      leaderboard: {
-        $slice: [
-          { $sortArray: { input: '$scores', sortBy: { grade: -1 } } },
-          5
-        ]
-      }
-  }}
-])
-
+    // 3) Leaderboards: quizzes/tests with student info
+    const leaderboard = await Submission.aggregate([
+      { $match: { grade: { $ne: null } }},
+      { $lookup: {
+          from: 'assignments',
+          localField: 'assignment',
+          foreignField: '_id',
+          as: 'assignment'
+      }},
+      { $unwind: '$assignment' },
+      { $match: { 'assignment.mode': { $in: ['quiz','test'] } }},
+      { $lookup: {
+          from: 'users',
+          localField: 'student',
+          foreignField: '_id',
+          as: 'student'
+      }},
+      { $unwind: '$student' },
+      { $group: {
+          _id: '$assignment._id',
+          title: { $first: '$assignment.title' },
+          scores: {
+            $push: {
+              student: {
+                _id:   '$student._id',
+                name:  '$student.name',
+                email: '$student.email'
+              },
+              grade: '$grade'
+            }
+          }
+      }},
+      { $project: {
+          title: 1,
+          leaderboard: {
+            $slice: [
+              { $sortArray: { input: '$scores', sortBy: { grade:-1 } } },
+              5
+            ]
+          }
+      }}
+    ])
 
     return res.json({
-      success:true,
-      data: { totalStudents, totalAssignments, totalQuizzes, totalTests, dispatched, leaderboard }
+      success: true,
+      data: {
+        totalStudents,
+        totalAssignments,
+        totalQuizzes,
+        totalTests,
+        // new question stats
+        totalQuestions,
+        mcqCount,
+        msqCount,
+        descriptiveCount,
+        imageCount,
+        dispatched,
+        leaderboard
+      }
     })
-  } catch(err){ next(err) }
+  } catch(err) {
+    next(err)
+  }
 }
 
 
@@ -93,33 +113,36 @@ const leaderboard = await Submission.aggregate([
 exports.getStats = async (req, res, next) => {
   try {
     // counts by role
-    const [totalStudents, totalMentors] = await Promise.all([
+    const [ totalStudents, totalMentors ] = await Promise.all([
       User.countDocuments({ role: 'student' }),
       User.countDocuments({ role: 'mentor' })
-    ]);
+    ])
 
-    // assignments / quizzes / tests
-    const [totalAssignments, totalQuizzes, totalTests] = await Promise.all([
+    // assignments / quizzes / tests (dispatched only)
+    const [ totalAssignments, totalQuizzes, totalTests ] = await Promise.all([
       Assignment.countDocuments({ mode: 'assignment', isDispatched: true }),
       Assignment.countDocuments({ mode: 'quiz',       isDispatched: true }),
       Assignment.countDocuments({ mode: 'test',       isDispatched: true })
-    ]);
+    ])
 
-    // ongoing (dispatched & not yet due or not yet submitted)
-    const now = new Date();
-    const [ongoingAssignments, ongoingQuizzes, ongoingTests] = await Promise.all([
+    // total questions in question bank
+    const totalQuestions = await Question.countDocuments()
+
+    // ongoing (dispatched & not yet due)
+    const now = new Date()
+    const [ ongoingAssignments, ongoingQuizzes, ongoingTests ] = await Promise.all([
       Assignment.countDocuments({ mode:'assignment', isDispatched:true, dueDate:{ $gt: now } }),
       Assignment.countDocuments({ mode:'quiz',       isDispatched:true, dueDate:{ $gt: now } }),
       Assignment.countDocuments({ mode:'test',       isDispatched:true, dueDate:{ $gt: now } })
-    ]);
+    ])
 
     // submissions reviewed vs pending manual
-    const totalSubs      = await Submission.countDocuments({ isFinal: true });
-    const pendingReview  = await Submission.countDocuments({
+    const totalSubs     = await Submission.countDocuments({ isFinal: true })
+    const pendingReview = await Submission.countDocuments({
       isFinal: true,
       feedback: null,
-      'answers.isCorrect': { $exists: false } // or however you mark manual
-    });
+      'answers.isCorrect': { $exists: false }
+    })
 
     res.json({
       success: true,
@@ -129,14 +152,15 @@ exports.getStats = async (req, res, next) => {
         totalAssignments,
         totalQuizzes,
         totalTests,
+        totalQuestions,
         ongoingAssignments,
         ongoingQuizzes,
         ongoingTests,
         totalSubs,
         pendingReview
       }
-    });
+    })
   } catch (err) {
-    next(err);
+    next(err)
   }
-};
+}
