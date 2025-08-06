@@ -10,7 +10,11 @@ export default function SubmissionList() {
 
   const { data: subs = [], isLoading, error } = useQuery(
     ['submissions', id],
-    () => API.get(`/assignments/${id}/submissions`).then(r => r.data.data),
+    () => API.get(`/assignments/${id}/submissions`).then(r => r.data.data),{
+     staleTime: 5 * 60 * 1000,       // cache for 5 min
+     refetchOnWindowFocus: false,    // no auto-refetch on focus
+     retry: false                     // don’t retry on errors
+   },
     { onError: () => toast.error('Failed to load submissions') }
   )
 

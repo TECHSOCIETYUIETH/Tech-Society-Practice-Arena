@@ -1,138 +1,131 @@
 // src/pages/SubmissionReview.jsx
-import React, { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery, useMutation } from 'react-query'
+import React, { useState, useContext } from 'react'
+import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from 'react-query'
 import API from '../api/api.js'
+import { AuthContext } from '../contexts/AuthContext.jsx'
+
 import { toast } from 'react-hot-toast'
 import { ArrowLeft } from 'lucide-react'
 
 export default function SubmissionReview() {
-  const { id, studentId } = useParams()
+  const { id: assignmentId, studentId } = useParams()
   const navigate = useNavigate()
+  const qc = useQueryClient()
+  const { user } = useContext(AuthContext)
 
-  // Fetch assignment + questions
-  const { data: assignment, isLoading: aLoading } = useQuery(
-    ['assignment', id],
-    () => API.get(`/assignments/${id}`).then(r => r.data.data)
+  // 1) Fetch assignment + that student’s submission
+  const { data, isLoading, error } = useQuery(
+    ['submission', assignmentId, studentId],
+    () => API.get(`/assignments/${assignmentId}/submissions/${studentId}`)
+              .then(r => r.data.data),
+    { enabled: !!assignmentId && !!studentId }
   )
 
-  // Fetch the specific submission
-  const { data: submission, isLoading: sLoading } = useQuery(
-    ['submission', id, studentId],
-    () => API.get(`/assignments/${id}/submissions/${studentId}`).then(r => r.data.data)
-  )
-
-  // Local state for grade, feedback, and per-answer correctness
-  const [grade, setGrade] = useState(null)
   const [feedback, setFeedback] = useState('')
-  const [answers, setAnswers] = useState([])
+  const [grade, setGrade] = useState(0)
+  const [answerMap, setAnswerMap] = useState({}) // { questionId: { isCorrect } }
 
-  // Initialize form once data loads
-  useEffect(() => {
-    if (submission && assignment) {
-      setGrade(submission.grade ?? 0)
-      setFeedback(submission.feedback || '')
-      // Merge assignment.questions with submission.answers
-      const map = assignment.questions.map(q => {
-        const subAns = submission.answers.find(a => a.question === q._id)
-        return {
-          question: q,
-          response: subAns?.response,
-          isCorrect: subAns?.isCorrect || false
-        }
-      })
-      setAnswers(map)
-    }
-  }, [submission, assignment])
-
-  // Mutation to send grading
+  // prepare mutation
   const mutation = useMutation(
-    data =>
-      API.put(`/assignments/${id}/submissions/${studentId}`, data),
+    updates => API.put(
+      `/assignments/${assignmentId}/submissions/${studentId}`,
+       updates
+    ),
     {
       onSuccess: () => {
-        toast.success('Graded successfully')
-        navigate(-1)
+        qc.invalidateQueries(['submission', assignmentId, studentId])
+        qc.invalidateQueries(['allAssignments'])
+        toast.success('Submission graded')
+        navigate(`/assignments/${assignmentId}/submissions`)
       },
-      onError: () => toast.error('Failed to save grade')
+      onError: () => toast.error('Failed to save grades')
     }
   )
 
-  if (aLoading || sLoading || !assignment || !submission) {
-    return <p className="p-6 text-center">Loading…</p>
-  }
+  if (isLoading) return <p className="p-6">Loading…</p>
+  if (error)     return <p className="p-6 text-red-600">Error loading submission.</p>
 
-  const handleAnswerToggle = idx => {
-    setAnswers(a => {
-      const copy = [...a]
-      copy[idx].isCorrect = !copy[idx].isCorrect
-      return copy
-    })
-  }
+  const { answers, totalQuestions } = data
+  // fetch parent assignment?
+  // you can also show data.assignment.questions if you populated them
 
   const handleSubmit = e => {
     e.preventDefault()
-    mutation.mutate({
-      grade,
-      feedback,
-      answers: answers.map(a => ({
-        question: a.question._id,
-        isCorrect: a.isCorrect
-      }))
-    })
+    // build payload
+    const answerUpdates = answers.map(a => ({
+      question: a.question._id || a.question,
+      isCorrect: !!answerMap[a.question._id || a.question]?.isCorrect
+    }))
+    mutation.mutate({ grade, feedback, answers: answerUpdates })
   }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto bg-white rounded shadow space-y-6">
-      <button
-        onClick={() => navigate(-1)}
-        className="flex items-center text-blue-600 hover:underline"
-      >
-        <ArrowLeft size={16} className="mr-1" />
-        Back
-      </button>
+    <div className="p-6 max-w-3xl mx-auto space-y-6">
+      <Link to={`/assignments/${assignmentId}/submissions`}
+            className="flex items-center text-blue-600 hover:underline">
+        <ArrowLeft size={16} className="mr-1"/> Back to submissions
+      </Link>
 
-      <h2 className="text-xl font-semibold">
-        Review: {submission.student.name}
-      </h2>
+      <h1 className="text-2xl font-semibold">Grade Submission</h1>
+      <form onSubmit={handleSubmit} className="space-y-8">
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {answers.map((a, idx) => (
-          <div key={a.question._id} className="space-y-2">
-            <div
-              className="prose"
-              dangerouslySetInnerHTML={{ __html: a.question.content }}
-            />
-            <p className="italic">Response: {String(a.response)}</p>
-            <label className="inline-flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={a.isCorrect}
-                onChange={() => handleAnswerToggle(idx)}
+        {answers.map((ans, idx) => {
+          const q = ans.question
+          const qId = q._id || q
+          return (
+            <div key={qId} className="border-b pb-4">
+              <div
+                className="prose mb-2"
+                dangerouslySetInnerHTML={{ __html: q.content }}
               />
-              <span>Mark Correct</span>
-            </label>
-          </div>
-        ))}
+
+              <p><strong>Student’s answer:</strong></p>
+              <div className="bg-gray-50 p-3 rounded mb-2">
+                {typeof ans.response === 'string'
+                  ? <span>{ans.response}</span>
+                  : ans.response.map(r => <div key={r}>{r}</div>)
+                }
+              </div>
+
+              <label className="inline-flex items-center">
+                <input
+                  type="checkbox"
+                  checked={!!answerMap[qId]?.isCorrect}
+                  onChange={e =>
+                    setAnswerMap({
+                      ...answerMap,
+                      [qId]: { isCorrect: e.target.checked }
+                    })
+                  }
+                  className="mr-2"
+                />
+                Mark correct
+              </label>
+            </div>
+          )
+        })}
 
         <div className="space-y-2">
           <label className="block">
-            <span>Overall Grade</span>
+            <span className="text-gray-700">Overall grade</span>
             <input
               type="number"
+              min={0}
+              max={answers.length}
               value={grade}
               onChange={e => setGrade(Number(e.target.value))}
-              className="mt-1 w-32 border px-2 py-1 rounded"
+              className="mt-1 block w-24 border px-2 py-1 rounded"
             />
+            <small className="text-gray-500 ml-2">/ {answers.length}</small>
           </label>
-
           <label className="block">
-            <span>Feedback</span>
+            <span className="text-gray-700">Feedback</span>
             <textarea
-              rows={4}
               value={feedback}
               onChange={e => setFeedback(e.target.value)}
-              className="mt-1 w-full border px-2 py-1 rounded"
+              className="mt-1 block w-full border px-2 py-1 rounded"
+              rows={4}
             />
           </label>
         </div>
@@ -140,9 +133,9 @@ export default function SubmissionReview() {
         <button
           type="submit"
           disabled={mutation.isLoading}
-          className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded disabled:opacity-50"
+          className="bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded disabled:opacity-50"
         >
-          {mutation.isLoading ? 'Saving…' : 'Save Grade'}
+          {mutation.isLoading ? 'Saving…' : 'Save Grades'}
         </button>
       </form>
     </div>

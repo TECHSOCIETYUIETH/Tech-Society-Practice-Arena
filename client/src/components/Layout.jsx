@@ -1,7 +1,7 @@
 // src/components/Layout.jsx
 import React, { useState, useContext } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import AuthContext from '../contexts/AuthContext.jsx'
+import { AuthContext } from '../contexts/AuthContext.jsx'
 import { LogOut, Menu } from 'lucide-react'
 
 export default function Layout({ children }) {
@@ -16,8 +16,8 @@ export default function Layout({ children }) {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Header */}
-      <header className="bg-white border-b">
+      {/* Sticky Header */}
+      <header className="bg-white border-b fixed top-0 left-0 right-0 z-50">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link to="/" className="text-2xl font-bold text-blue-600">
             Tech Society
@@ -25,12 +25,9 @@ export default function Layout({ children }) {
 
           {/* Desktop nav */}
           <nav className="hidden md:flex space-x-6">
-            {/* everyone */}
             <Link to="/" className="text-gray-700 hover:text-blue-600">
               Dashboard
             </Link>
-
-            {/* only mentors & admins */}
             {user?.role !== 'student' && (
               <>
                 <Link to="/questions" className="text-gray-700 hover:text-blue-600">
@@ -47,6 +44,9 @@ export default function Layout({ children }) {
           <div className="flex items-center space-x-4">
             <span className="hidden md:inline text-gray-700">
               {user?.name}
+            </span>
+            <span className="hidden md:inline text-gray-700">(
+              {user?.role})
             </span>
             <button
               onClick={handleLogout}
@@ -74,7 +74,6 @@ export default function Layout({ children }) {
             >
               Dashboard
             </Link>
-
             {user?.role !== 'student' && (
               <>
                 <Link
@@ -93,7 +92,6 @@ export default function Layout({ children }) {
                 </Link>
               </>
             )}
-
             <button
               onClick={() => { handleLogout(); setMenuOpen(false) }}
               className="w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100"
@@ -105,10 +103,12 @@ export default function Layout({ children }) {
       </header>
 
       {/* Main content */}
-      <main className="flex-1 p-4">{children}</main>
+      <main className="flex-1 p-4 pt-24 pb-16"> {/* add top & bottom padding for fixed header/footer */}
+        {children}
+      </main>
 
-      {/* Footer */}
-      <footer className="bg-white border-t text-center py-3 text-sm text-gray-500">
+      {/* Sticky Footer */}
+      <footer className="bg-white border-t fixed bottom-0 left-0 right-0 text-center py-3 text-sm text-gray-500">
         © {new Date().getFullYear()} Tech Society
       </footer>
     </div>

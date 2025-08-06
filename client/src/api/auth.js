@@ -1,23 +1,28 @@
-// src/api/auth.js
 import API from './api.js'
 
-// Logs in and returns { user, token }
-export function login(email, password) {
-  return API
-    .post('/auth/login', { email, password })
-    .then(res => res.data.data)
+export function register(name,email,password,branch,year){
+  return API.post('/auth/register',{ name,email,password,branch,year })
+    .then(res=>res.data)
 }
 
-// Registers a new user and returns { user, token }
-export function register(name, email, password, role = 'student') {
-  return API
-    .post('/auth/register', { name, email, password, role })
-    .then(res => res.data.data)
+export function verifyEmail(token){
+  return API.get(`/auth/verify/${token}`).then(r=>r.data)
 }
 
-// Fetches the current user; no need to pass the token manually
-export function fetchMe() {
-  return API
-    .get('/auth/me')
-    .then(res => res.data.data)
+export async function login(email, password) {
+  const res = await API.post('/auth/login', { email, password })
+  // res.data looks like { success: true, data: { user, token } }
+  return res.data.data   // <-- return exactly { user, token }
+}
+export function fetchMe(token){
+  return API.get('/auth/me',{ headers:{ Authorization:`Bearer ${token}` } })
+    .then(res=>res.data.data)
+}
+
+export function forgotPassword(email){
+  return API.post('/auth/forgot-password',{ email }).then(r=>r.data)
+}
+
+export function resetPassword(token,password){
+  return API.post(`/auth/reset-password/${token}`,{ password }).then(r=>r.data)
 }

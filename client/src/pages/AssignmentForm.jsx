@@ -37,10 +37,18 @@ export default function AssignmentForm() {
 
   // Fetch all questions & students
   const { data: allQuestions = [] } = useQuery('questions', () =>
-    API.get('/questions').then(r => r.data.data)
+    API.get('/questions').then(r => r.data.data),{
+     staleTime: 5 * 60 * 1000,       // cache for 5 min
+     refetchOnWindowFocus: false,    // no auto-refetch on focus
+     retry: false                     // don’t retry on errors
+   },
   )
   const { data: allStudents = [] }  = useQuery('students', () =>
-    API.get('/users').then(r => r.data.data)
+    API.get('/users').then(r => r.data.data),{
+     staleTime: 5 * 60 * 1000,       // cache for 5 min
+     refetchOnWindowFocus: false,    // no auto-refetch on focus
+     retry: false                     // don’t retry on errors
+   },
   )
 
   // Load existing assignment in edit mode

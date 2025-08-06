@@ -1,37 +1,43 @@
+// src/pages/SubmissionForm.jsx
 import React, { useState, useEffect, useContext } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useQuery } from 'react-query'
+import { useQuery, useMutation, useQueryClient } from 'react-query'
 import API from '../api/api.js'
 import { toast } from 'react-hot-toast'
-import AuthContext from '../contexts/AuthContext.jsx'
+import { AuthContext } from '../contexts/AuthContext.jsx'
+
 import { formatDistanceToNowStrict } from 'date-fns'
 
 export default function SubmissionForm() {
   const { id } = useParams()
   const { user } = useContext(AuthContext)
   const navigate = useNavigate()
+  const qc = useQueryClient()
 
+  // State
   const [answers, setAnswers]                 = useState([])
   const [testCaseResults, setTestCaseResults] = useState([])
   const [saving, setSaving]                   = useState(false)
   const [submitting, setSubmitting]           = useState(false)
+  const [now, setNow]                         = useState(Date.now())
+  const [startTime]                           = useState(Date.now()) // record when opened
 
-  // 1) load assignment
+  // 1) Load assignment
   const { data: assignment, isLoading: aLoading } = useQuery(
     ['assignment', id],
-    () => API.get(`/assignments/${id}`).then(r => r.data.data)
+    () => API.get(`/assignments/${id}`).then(r => r.data.data),
+    { staleTime: 300000, refetchOnWindowFocus: false, retry: false }
   )
 
-  // 2) derive mode & due timestamp
-  const mode = assignment?.mode
+  // 2) Compute due timestamp
+  const mode     = assignment?.mode
   const dueDateMs = assignment?.dueDate
     ? new Date(assignment.dueDate).getTime()
     : (mode !== 'assignment' && assignment?.timeLimitMinutes
-        ? Date.now() + assignment.timeLimitMinutes * 60_000
-        : null)
+       ? startTime + assignment.timeLimitMinutes * 60000
+       : null)
 
-  // 3) live clock
-  const [now, setNow] = useState(Date.now())
+  // 3) Tick every second for countdown
   useEffect(() => {
     if ((mode === 'quiz' || mode === 'test') && dueDateMs) {
       const iv = setInterval(() => setNow(Date.now()), 1000)
@@ -39,32 +45,28 @@ export default function SubmissionForm() {
     }
   }, [mode, dueDateMs])
 
+  // Build HH:MM:SS display
   const remainingMs = dueDateMs ? Math.max(dueDateMs - now, 0) : 0
-  const hrs = String(Math.floor(remainingMs / 3600000)).padStart(2,'0')
-  const mins = String(Math.floor((remainingMs % 3600000)/60000)).padStart(2,'0')
-  const secs = String(Math.floor((remainingMs % 60000)/1000)).padStart(2,'0')
+  const hrs   = String(Math.floor(remainingMs/3600000)).padStart(2,'0')
+  const mins  = String(Math.floor((remainingMs%3600000)/60000)).padStart(2,'0')
+  const secs  = String(Math.floor((remainingMs%60000)/1000)).padStart(2,'0')
   const timerDisplay = `${hrs}:${mins}:${secs}`
 
-  // 4) auto-submit when done
-  useEffect(() => {
-    if (remainingMs === 0 && (mode === 'quiz' || mode === 'test')) {
-      handleFinal(new Event('auto'))
-    }
-  }, [remainingMs])
-
-  // 5) load existing submission
+  // 4) Load existing submission (draft or final)
   const userId = user?._id
   const { data: existing, isLoading: sLoading } = useQuery(
     ['submission', id, userId],
     () => API.get(`/assignments/${id}/submission`).then(r => r.data.data),
     {
       enabled: !!assignment && !!userId,
+      staleTime: 300000,
+      refetchOnWindowFocus: false,
       retry: false,
       onError: () => {}
     }
   )
 
-  // 6) populate answers
+  // 5) Populate answers when existing arrives
   useEffect(() => {
     if (existing) {
       setAnswers(existing.answers)
@@ -72,7 +74,53 @@ export default function SubmissionForm() {
     }
   }, [existing])
 
-  // 7) handle loading & missing assignment
+  // 6) Mutations for save & final, include timeTakenMs on final
+  const submitMut = useMutation(
+    ({ answers, testCaseResults, saveDraft, timeTakenMs }) =>
+      API.post(`/assignments/${id}/submit`, { answers, testCaseResults, saveDraft, timeTakenMs }),
+    {
+      onSuccess: () => {
+        qc.invalidateQueries(['myAssignments', user._id])
+        navigate('/')
+      }
+    }
+  )
+
+  const handleSave = e => {
+    e.preventDefault()
+    setSaving(true)
+    submitMut.mutate(
+      { answers, testCaseResults, saveDraft: true, timeTakenMs: null },
+      {
+        onSettled: () => setSaving(false),
+        onError:  () => toast.error('Save failed'),
+        onSuccess:() => toast.success('Draft saved')
+      }
+    )
+  }
+
+  const handleFinal = e => {
+    e.preventDefault()
+    setSubmitting(true)
+    const timeTakenMs = Date.now() - startTime
+    submitMut.mutate(
+      { answers, testCaseResults, saveDraft: false, timeTakenMs },
+      {
+        onSettled: () => setSubmitting(false),
+        onError:  () => toast.error('Submit failed'),
+        onSuccess:() => toast.success('Submitted!')
+      }
+    )
+  }
+
+  // 7) Auto-submit when timer hits zero
+  useEffect(() => {
+    if (remainingMs === 0 && (mode === 'quiz' || mode === 'test')) {
+      handleFinal(new Event('auto'))
+    }
+  }, [remainingMs])
+
+  // Guards
   if (aLoading || sLoading) {
     return <p className="p-6 text-center">Loading…</p>
   }
@@ -80,6 +128,7 @@ export default function SubmissionForm() {
     return <p className="p-6 text-center text-red-600">Assignment not found</p>
   }
 
+  // Helper to update one answer
   const updateAnswer = (qid, resp) => {
     setAnswers(curr => {
       const idx = curr.findIndex(a => a.question === qid)
@@ -92,49 +141,22 @@ export default function SubmissionForm() {
     })
   }
 
-  async function handleSave(e) {
-    e.preventDefault()
-    setSaving(true)
-    try {
-      await API.post(`/assignments/${id}/submit`, { answers, testCaseResults, saveDraft: true })
-      toast.success('Draft saved')
-    } catch {
-      toast.error('Save failed')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function handleFinal(e) {
-    e.preventDefault()
-    setSubmitting(true)
-    try {
-      await API.post(`/assignments/${id}/submit`, { answers, testCaseResults, saveDraft: false })
-      toast.success('Submitted!')
-      navigate('/')
-    } catch {
-      toast.error('Submit failed')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
   return (
-    <div className="p-6 max-w-3xl mx-auto bg-white rounded shadow space-y-6">
-      <h2 className="text-xl font-semibold">{assignment.title}</h2>
-
-      {/* Live timer banner */}
-      {(mode === 'quiz' || mode === 'test') && (
-        <div className="flex justify-center mb-4">
-          <div className="bg-red-100 text-red-700 font-mono text-lg px-4 py-2 rounded-lg shadow-inner">
+    <div className="relative p-6 max-w-3xl mx-auto bg-white rounded shadow space-y-6">
+      {/* Sticky timer at top-right */}
+      {(mode === 'quiz' || mode === 'test') && dueDateMs && (
+        <div className="fixed top-4 right-4 z-50">
+          <div className="bg-red-600 text-white font-mono text-sm px-3 py-1 rounded shadow-lg">
             ⏱ {timerDisplay}
           </div>
         </div>
       )}
 
+      <h2 className="text-xl font-semibold">{assignment.title}</h2>
+
       <form className="space-y-6">
         {assignment.questions.map(q => {
-          const ans = answers.find(a => a.question === q._id)
+          const ans  = answers.find(a => a.question === q._id)
           const resp = ans?.response
           return (
             <div key={q._id} className="space-y-2">
@@ -152,10 +174,13 @@ export default function SubmissionForm() {
                           : Array.isArray(resp) && resp.includes(o.id)
                       }
                       onChange={() => {
-                        if (q.type === 'mcq') updateAnswer(q._id, o.id)
-                        else {
+                        if (q.type === 'mcq') {
+                          updateAnswer(q._id, o.id)
+                        } else {
                           let arr = Array.isArray(resp) ? [...resp] : []
-                          arr = arr.includes(o.id) ? arr.filter(x => x !== o.id) : [...arr, o.id]
+                          arr = arr.includes(o.id)
+                            ? arr.filter(x => x !== o.id)
+                            : [...arr, o.id]
                           updateAnswer(q._id, arr)
                         }
                       }}
@@ -176,7 +201,7 @@ export default function SubmissionForm() {
           )
         })}
 
-        <div className="flex gap-4">
+        <div className="flex gap-4 pt-6">
           <button
             onClick={handleSave}
             disabled={saving}

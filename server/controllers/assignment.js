@@ -48,9 +48,10 @@ exports.getAssignments = async (req, res, next) => {
 exports.getMyAssignments = async (req, res, next) => {
   try {
     const me = req.user.id
-    const assigns = await Assignment.find({
-      $or: [ { visibleToAll: true }, { visibleTo: me } ]
-    })
+     const assigns = await Assignment.find({
+    isDispatched: true,
+    $or: [ { visibleToAll:true }, { visibleTo: me } ]
+ })
       .select('title startDate dueDate mode timeLimitMinutes visibleToAll createdBy questions')  // include mode & timeLimit
       .populate('createdBy','name')
       .lean()
@@ -339,4 +340,51 @@ exports.getRankings = async (req, res, next) => {
   } catch (err) {
     next(err)
   }
+}
+
+
+// @desc Dispatch an assignment/quiz/test so students can see+attempt it
+exports.dispatchAssignment = async (req, res, next) => {
+  try {
+    const a = await Assignment.findById(req.params.id)
+    if (!a) return res.status(404).json({ success:false, message:'Not found' })
+
+    a.isDispatched = true
+    a.dispatchDate = new Date()
+    await a.save()
+
+    res.json({ success:true, data: a })
+  } catch(err) {
+    next(err)
+  }
+}
+
+
+
+// controllers/assignment.js
+
+// … your existing exports.createAssignment, getAssignments, etc.
+
+// dispatch
+exports.dispatchAssignment = async (req, res, next) => {
+  try {
+    const a = await Assignment.findById(req.params.id)
+    if (!a) return res.status(404).json({ success:false, message:'Not found' })
+    a.isDispatched = true
+    a.dispatchDate = new Date()
+    await a.save()
+    res.json({ success:true, data:a })
+  } catch (err) { next(err) }
+}
+
+// pull back
+exports.undispatchAssignment = async (req, res, next) => {
+  try {
+    const a = await Assignment.findById(req.params.id)
+    if (!a) return res.status(404).json({ success:false, message:'Not found' })
+    a.isDispatched = false
+    a.dispatchDate = null
+    await a.save()
+    res.json({ success:true, data:a })
+  } catch (err) { next(err) }
 }

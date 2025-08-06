@@ -2,34 +2,38 @@ import React, { createContext, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import * as authApi from '../api/auth.js'
 
-const AuthContext = createContext()
+export const AuthContext = createContext()
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [loginLoading, setLoginLoading] = useState(false)
   const navigate = useNavigate()
 
-  // on mount, try fetch /auth/me
+  // On mount, try to restore session
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (token) {
       authApi.fetchMe(token)
         .then(u => setUser(u))
-        .catch(() => { localStorage.removeItem('token') })
+        .catch(() => localStorage.removeItem('token'))
+        .finally(() => setLoading(false))
+    } else {
+      setLoading(false)
     }
   }, [])
 
   const login = async (email, password) => {
-    const { user, token } = await authApi.login(email, password)
-    localStorage.setItem('token', token)
-    setUser(user)
-    navigate('/')
-  }
-
-  const register = async (name,email,password,role) => {
-    const { user, token } = await authApi.register(name,email,password,role)
-    localStorage.setItem('token', token)
-    setUser(user)
-    navigate('/')
+    if (loginLoading) return
+    setLoginLoading(true)
+    try {
+      const { user: u, token } = await authApi.login(email, password)
+      localStorage.setItem('token', token)
+      setUser(u)
+      navigate('/')
+    } finally {
+      setLoginLoading(false)
+    }
   }
 
   const logout = () => {
@@ -38,11 +42,17 @@ export function AuthProvider({ children }) {
     navigate('/login')
   }
 
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <p className="text-gray-600">Loading user…</p>
+      </div>
+    )
+  }
+
   return (
-    <AuthContext.Provider value={{ user, login, register, logout }}>
+    <AuthContext.Provider value={{ user, login, logout, loginLoading }}>
       {children}
     </AuthContext.Provider>
   )
 }
-
-export default AuthContext

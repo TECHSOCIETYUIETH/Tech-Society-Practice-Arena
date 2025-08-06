@@ -1,7 +1,7 @@
 // middleware/authorize.js
 module.exports = function authorizeRoles(...allowedRoles) {
   return (req, res, next) => {
-    // req.user is set by auth middleware (it contains id and role)
+   console.log("Role now", req.user.role)
     if (!req.user || !allowedRoles.includes(req.user.role)) {
       return res
         .status(403)

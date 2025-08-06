@@ -32,31 +32,40 @@ const submissionSchema = new mongoose.Schema({
 const assignmentSchema = new mongoose.Schema({
   title:       { type: String, required: true, trim: true },
   description: { type: String, default: '' },
+ 
+  // mode: assignment, quiz, or test
+  mode: {
+    type: String,
+    enum: ['assignment','quiz','test'],
+    default: 'assignment'
+  },
 
-  questions: [
+  // mentor dispatch control
+  isDispatched: {
+    type: Boolean,
+    default: false
+  },
+  dispatchDate: Date,
+
+  // timing
+  startDate:       Date,             // for assignments
+  dueDate:         Date,             
+  timeLimitMinutes:Number,           
+
+  questions: [    
     { type: mongoose.Schema.Types.ObjectId, ref: 'Question', required: true }
   ],
 
   visibleToAll: { type: Boolean, default: true },
-  visibleTo: [
-    { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
-  ],
+  visibleTo:    [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
 
- mode: {
-  type: String,
-  enum: ['assignment','quiz','test'],
-  required: true,
-  default: 'assignment'
-},
-startDate: Date,
-dueDate:   Date,
-timeLimitMinutes: Number,
-status: { type: String, enum:['open','closed'], default:'open' },
-
-  // **Embedded submissions**
+  // embedded submissions
   submissions: [ submissionSchema ],
+   // dispatch state:
+  isDispatched:{ type:Boolean, default:false },
+  dispatchDate:{ type:Date },
 
-  createdBy: {
+  createdBy: {  
     type: mongoose.Schema.Types.ObjectId,
     ref:  'User',
     required: true

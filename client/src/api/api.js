@@ -1,18 +1,17 @@
 // src/api/api.js
 import axios from 'axios'
 
-// If you’re using a Vite proxy, baseURL can just be '/api'
 const API = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api'
+  baseURL: '/api',            // pointing at http://localhost:5000/api in dev via your proxy
 })
 
-// Automatically attach the JWT token (if any) to every request
+// Attach JWT on every request if present
 API.interceptors.request.use(config => {
   const token = localStorage.getItem('token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
   return config
-})
+}, error => Promise.reject(error))
 
 export default API

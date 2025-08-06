@@ -1,75 +1,29 @@
-// src/pages/Login.jsx
-import React, { useState, useContext } from 'react'
-import AuthContext from '../contexts/AuthContext.jsx'
+import React, { useContext, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { toast } from 'react-hot-toast'
+import { Eye, EyeOff } from 'lucide-react'
+import { AuthContext } from '../contexts/AuthContext.jsx'
 
 export default function Login() {
-  const { login } = useContext(AuthContext)
-  const [email, setEmail] = useState('')
-  const [pw, setPw]       = useState('')
-  const [error, setError] = useState('')
+  const { login, loginLoading } = useContext(AuthContext)
+  const [email, setEmail]       = useState('')
+  const [password, setPassword] = useState('')
+  const [showPw, setShowPw]     = useState(false)
 
   const handleSubmit = async e => {
     e.preventDefault()
     try {
-      await login(email, pw)
+      await login(email, password)
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed')
-    }
-  }
-
-  // Quick dev logins
-  const quickLogin = async (role) => {
-    let creds = {}
-    if (role === 'admin') {
-      creds = { email: 'alice.admin@example.com',   password: 'AdminPass123' }
-    } else if (role === 'mentor') {
-      creds = { email: 'mona.mentor@example.com',   password: 'MentorPass123' }
-    } else {
-      creds = { email: 'stu.dent@example.com',      password: 'StudentPass123' }
-    }
-    try {
-      await login(creds.email, creds.password)
-    } catch (err) {
-      setError('Quick login failed')
+      toast.error(err.response?.data?.message || 'Login failed')
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-gray-100">
-      <div className="w-full max-w-md space-y-6">
-        {/* Dev quick-login buttons */}
-        {import.meta.env.DEV && (
-          <div className="flex justify-between space-x-2">
-            <button
-              onClick={() => quickLogin('admin')}
-              className="flex-1 bg-red-500 hover:bg-red-600 text-white py-2 rounded"
-            >
-              Login as Admin
-            </button>
-            <button
-              onClick={() => quickLogin('mentor')}
-              className="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 rounded"
-            >
-              Mentor
-            </button>
-            <button
-              onClick={() => quickLogin('student')}
-              className="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2 rounded"
-            >
-              Student
-            </button>
-          </div>
-        )}
-
-        <form
-          onSubmit={handleSubmit}
-          className="bg-white p-6 rounded shadow space-y-4"
-        >
-          <h2 className="text-2xl font-semibold text-center">Login</h2>
-
-          {error && (
-            <div className="text-red-600 text-sm text-center">{error}</div>
-          )}
+    <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
+      <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-6 space-y-6">
+        <h2 className="text-2xl font-bold text-center">Welcome Back</h2>
+        <form onSubmit={handleSubmit} className="space-y-5">
 
           <label className="block">
             <span className="text-gray-700">Email</span>
@@ -78,34 +32,55 @@ export default function Login() {
               value={email}
               onChange={e => setEmail(e.target.value)}
               required
-              className="mt-1 block w-full border px-3 py-2 rounded"
+              className="mt-1 block w-full border rounded px-3 py-2 focus:outline-none focus:ring"
             />
           </label>
 
-          <label className="block">
+          <label className="block relative">
             <span className="text-gray-700">Password</span>
             <input
-              type="password"
-              value={pw}
-              onChange={e => setPw(e.target.value)}
+              type={showPw ? 'text' : 'password'}
+              value={password}
+              onChange={e => setPassword(e.target.value)}
               required
-              className="mt-1 block w-full border px-3 py-2 rounded"
+              className="mt-1 block w-full border rounded px-3 py-2 focus:outline-none focus:ring"
             />
+            <button
+              type="button"
+              onClick={() => setShowPw(v => !v)}
+              className="absolute top-9 right-3 text-gray-500"
+            >
+              {showPw ? <EyeOff size={18}/> : <Eye size={18}/>}
+            </button>
           </label>
+
+          <div className="flex justify-between items-center">
+            <Link
+              to="/forgot-password"
+              className="text-sm text-blue-600 hover:underline"
+            >
+              Forgot password?
+            </Link>
+          </div>
 
           <button
             type="submit"
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded"
+            disabled={loginLoading}
+            className={`w-full py-2 rounded-lg text-white font-medium ${
+              loginLoading
+                ? 'bg-blue-400 cursor-not-allowed'
+                : 'bg-blue-600 hover:bg-blue-700'
+            }`}
           >
-            Log In
+            {loginLoading ? 'Logging in…' : 'Log In'}
           </button>
         </form>
 
-        <p className="text-center text-sm text-gray-600">
+        <p className="text-center text-gray-600">
           Don’t have an account?{' '}
-          <a href="/register" className="text-blue-600 hover:underline">
-            Register
-          </a>
+          <Link to="/register" className="text-blue-600 hover:underline">
+            Sign up
+          </Link>
         </p>
       </div>
     </div>

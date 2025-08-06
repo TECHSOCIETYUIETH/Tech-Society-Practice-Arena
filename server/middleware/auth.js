@@ -1,16 +1,18 @@
-const jwt = require('jsonwebtoken');
+// middleware/auth.js
+const jwt = require('jsonwebtoken')
+const User = require('../models/User')
 
-module.exports = (req, res, next) => {
-  const header = req.headers.authorization;
-  if (!header?.startsWith('Bearer '))
-    return res.status(401).json({ success:false, message:'No token' });
-
-  const token = header.split(' ')[1];
+module.exports = async function auth(req, res, next) {
+  const authHeader = req.headers.authorization || ''
+  const token = authHeader.replace(/^Bearer /, '')
+  if (!token) return res.status(401).json({ success: false, message: 'No token' })
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // { id: ... }
-    next();
+    const { id } = jwt.verify(token, process.env.JWT_SECRET)
+    const user = await User.findById(id).select('role name email')
+    if (!user) return res.status(401).json({ success: false, message: 'Invalid user' })
+    req.user = { id: user._id.toString(), role: user.role }
+    next()
   } catch (err) {
-    res.status(401).json({ success:false, message:'Token invalid' });
+    return res.status(401).json({ success: false, message: 'Invalid token' })
   }
-};
+}
