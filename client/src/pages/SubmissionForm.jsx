@@ -65,7 +65,9 @@ export default function SubmissionForm() {
     () => API.get(`/assignments/${id}/submission`).then(r => r.data.data),
     {
       enabled: !!assignment && !!studentId,
-      staleTime: 300_000,
+      staleTime: 0,
+      refetchOnMount: true, 
+      refetchOnWindowFocus: true,
       retry: false,
       onError: () => {}
     }
